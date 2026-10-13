@@ -5345,7 +5345,7 @@ test('plan1 live exits are recomputed from actual fill price', async () => {
         symbol: 'BTC-USD',
         timeframe: '5m',
         slotIso: '2099-01-01T00:00:00.000Z',
-        action: { shouldTrade: true, direction: 'up', usd: 5, takeProfitPrice: 0.67, stopLossPrice: 0.50 }
+        action: { shouldTrade: true, direction: 'up', usd: 5, limitPrice: 0.50, takeProfitPrice: 0.67, stopLossPrice: 0.50 }
       }
     }
   });

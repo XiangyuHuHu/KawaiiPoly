@@ -148,14 +148,13 @@ export class PolymarketClient {
   async getNamedMarketOutcome(slug) {
     if (!slug) return null;
     // BTC/ETH updown 短窗：/markets?slug= 常返回 []，官方结果在 /events。
-    // 先并行查两边，避免 markets 空结果拖一整轮再 fallback。
     // Gamma /markets omits closed markets unless closed=true is passed.
-    const [markets, closedMarkets, events] = await Promise.all([
-      this.request(
-        `${this.gammaBaseUrl}/markets`,
-        { slug },
-        { cacheTtlMs: 15_000 }
-      ).catch(() => []),
+    const markets = await this.request(
+      `${this.gammaBaseUrl}/markets`, { slug }, { cacheTtlMs: 15_000 }
+    ).catch(() => []);
+    const direct = resolveNamedMarketOutcome(markets, slug);
+    if (direct) return direct;
+    const [closedMarkets, events] = await Promise.all([
       this.request(
         `${this.gammaBaseUrl}/markets`,
         { slug, closed: 'true' },
@@ -167,8 +166,7 @@ export class PolymarketClient {
         { cacheTtlMs: 15_000 }
       ).catch(() => [])
     ]);
-    return resolveNamedMarketOutcome(markets, slug)
-      || resolveNamedMarketOutcome(closedMarkets, slug)
+    return resolveNamedMarketOutcome(closedMarkets, slug)
       || resolveNamedMarketOutcome(events, slug);
   }
 

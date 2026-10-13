@@ -69,7 +69,7 @@ test('plan13 is a Plan2-family profile with its own label', () => {
   assert.equal(plan2FamilyLabel('plan13'), 'Plan13');
 });
 
-test('plan13 profile relaxes entry to 58-92 and disables take-profit', () => {
+test('plan13 profile limits entry to 65-88 and disables take-profit', () => {
   const cfg = resolvePlan2ProfileConfig({
     plan2EntryMaxPrice: 0.62,
     plan2PaperEntryMaxPrice: 0.75,
@@ -77,9 +77,9 @@ test('plan13 profile relaxes entry to 58-92 and disables take-profit', () => {
     plan2TrailingTakeProfitEnabled: true
   }, 'plan13');
   assert.equal(cfg._plan2Profile, PLAN13_ID);
-  assert.equal(cfg.plan2EntryMinPrice, 0.58);
-  assert.equal(cfg.plan2EntryMaxPrice, 0.92);
-  assert.equal(cfg.plan2PaperEntryMaxPrice, 0.92);
+  assert.equal(cfg.plan2EntryMinPrice, 0.65);
+  assert.equal(cfg.plan2EntryMaxPrice, 0.88);
+  assert.equal(cfg.plan2PaperEntryMaxPrice, 0.88);
   assert.equal(cfg.plan2TakeProfitEnabled, false);
   assert.equal(cfg.plan2TrailingTakeProfitEnabled, false);
   assert.equal(cfg.plan2LiveSyncPaperExitEnabled, false);
@@ -88,10 +88,10 @@ test('plan13 profile relaxes entry to 58-92 and disables take-profit', () => {
   const snap = buildPlan13RulesSnapshot(cfg);
   assert.equal(snap.strategyVersion, PLAN13_VERSION);
   assert.equal(snap.takeProfitEnabled, false);
-  assert.equal(snap.exitMode, 'hard_sl_hold_to_settlement');
+  assert.equal(snap.exitMode, 'confirmed_hard_sl_hold_to_settlement');
 });
 
-test('plan13 plan view uses 0.92 entry cap and disables take-profit flags', () => {
+test('plan13 plan view uses 0.88 entry cap and disables take-profit flags', () => {
   const plan = buildPolymarketPaperPlan2({
     signal: signal(),
     sentiment: sentiment({ up: 0.85, down: 0.15 }),
@@ -108,8 +108,8 @@ test('plan13 plan view uses 0.92 entry cap and disables take-profit flags', () =
   assert.equal(plan.planId, 'plan13');
   assert.equal(plan.exitRule.takeProfitEnabled, false);
   assert.equal(plan.exitRule.trailingTakeProfitEnabled, false);
-  assert.equal(plan.exitRule.entryMinPrice, 0.58);
-  assert.equal(plan.exitRule.entryMaxPrice, 0.92);
+  assert.equal(plan.exitRule.entryMinPrice, 0.65);
+  assert.equal(plan.exitRule.entryMaxPrice, 0.88);
 });
 
 test('plan13 paper stop-loss closes; pullback does not take profit', async () => {
@@ -150,7 +150,12 @@ test('plan13 paper stop-loss closes; pullback does not take profit', async () =>
     assert.equal((await service.processPlan2TakeProfits(async () => 0.90)).length, 0);
     assert.equal(service.getBucket('plan13').paperOrders[0].settlementStatus, 'open');
 
-    const stopped = await service.processPlan2TakeProfits(async () => 0.67);
+    assert.equal((await service.processPlan2TakeProfits(async () => 0.67)).length, 0);
+    const reversal = { resolveCurrentPlanView: async () => ({
+      signal: { technicalDirection: 'down', spotDirection: 'down' }
+    }) };
+    assert.equal((await service.processPlan2TakeProfits(async () => 0.67, reversal)).length, 0);
+    const stopped = await service.processPlan2TakeProfits(async () => 0.67, reversal);
     assert.equal(stopped.length, 1);
     assert.equal(stopped[0].planId, 'plan13');
     assert.equal(stopped[0].exitStatus, 'stop-loss');
@@ -259,7 +264,7 @@ test('Plan13 live can join enabledPlans when LIVE_ENABLED', async () => {
       symbols: ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD']
     });
     assert.ok(started.enabledPlans.includes('plan13'));
-    assert.deepEqual(started.timeframes, ['5m', '15m']);
+    assert.deepEqual(started.timeframes, ['15m']);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

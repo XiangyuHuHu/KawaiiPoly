@@ -98,7 +98,7 @@ test('getConditionalWinRates slices by direction / hour / strength', () => {
   };
 
   for (let i = 0; i < 10; i += 1) {
-    const target = `2026-07-0${1 + Math.floor(i / 9)}T0${i % 9}:15:00.000Z`;
+    const target = new Date(Date.now() - (i + 1) * 3600_000).toISOString();
     const id = buildDirectionJudgmentId({ timeframe: '15m', targetTimeIso: target, symbol: 'ETH-USD' });
     db.recordDirectionJudgment({
       ...base,
