@@ -747,6 +747,7 @@ export function buildPolymarketPaperPlan14({
       now, config, policyVersion: PLAN14_PREVIOUS_VERSION }) : null,
     action,
     profitExperiment: plan14Book ? {
+      asks: { up: plan14Book.up?.asks || [], down: plan14Book.down?.asks || [] },
       baseline: decision,
       candidate: evaluatePlan14Entry({ signal, sentiment, timeframe, book: plan14Book, now, config,
         policyVersion: PLAN14_PROFIT_EXPERIMENT_VERSION })

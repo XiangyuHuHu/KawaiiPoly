@@ -873,6 +873,8 @@ function buildPolymarketConfig() {
     // 新开仓默认关。v9 廉价侧持有到结算已经亏掉本金的一大半，重启不能再自动打开。
     plan14NewEntriesEnabled: process.env.POLYMARKET_PLAN14_NEW_ENTRIES_ENABLED === 'true',
     plan14ProfitExperimentEnabled: process.env.POLYMARKET_PLAN14_PROFIT_EXPERIMENT_ENABLED !== 'false',
+    // Adverse cents per share, applied only to independent $10 paper experiment fills.
+    plan14ProfitExperimentLatencyPenaltyCents: Number(process.env.POLYMARKET_PLAN14_PROFIT_EXPERIMENT_LATENCY_PENALTY_CENTS || 0),
     plan14Symbols: parseList(
       process.env.POLYMARKET_PLAN14_SYMBOLS,
       'BTC-USD,ETH-USD,SOL-USD,XRP-USD'

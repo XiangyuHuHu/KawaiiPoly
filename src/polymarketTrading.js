@@ -7262,7 +7262,7 @@ export class PolymarketTradingService {
     bucket.plan14OpportunityLog = rows.slice(0, 4000);
     if (this.config.plan14ProfitExperimentEnabled !== false && bucket.auto?.enabled && plan.profitExperiment) {
       bucket.plan14ProfitExperiment ||= createPlan14ProfitExperiment(time);
-      const events = observePlan14ProfitExperiment(bucket.plan14ProfitExperiment, plan, sentiment, Date.now(), resolvePaperTakerFeeRate(this.config));
+      const events = observePlan14ProfitExperiment(bucket.plan14ProfitExperiment, plan, sentiment, Date.now(), resolvePaperTakerFeeRate(this.config), this.config);
       for (const event of events) await this.archivePlan14Research('experiments', { observedAtIso: new Date().toISOString(), ...event });
       rows[0].profitExperiment = { baseline: { allowed: plan.profitExperiment.baseline.allowed,
         selected: plan.profitExperiment.baseline.selected, model: plan.profitExperiment.baseline.model },

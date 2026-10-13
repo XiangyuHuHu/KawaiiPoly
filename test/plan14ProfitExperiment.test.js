@@ -12,7 +12,8 @@ const sentiment = { available: true, marketSlug: 'btc-test', upPrice:.5, downPri
 const signal = { symbol:'BTC-USD', prediction:{targetTimeIso:new Date(targetMs).toISOString(),comparisonBasePrice:100},
   schedule:{currentSlotIso:'2099-01-10T00:00:00Z',nextSlotIso:new Date(targetMs).toISOString(),secondsToNext:240},
   indicators:{currentPrice:100.1,volatility15mPct:.001,currentQuoteTime:nowMs} };
-const book = {up:{bid:.49,ask:.51,bookTimeMs:nowMs},down:{bid:.49,ask:.51,bookTimeMs:nowMs}};
+const book = {up:{bid:.49,ask:.51,asks:[{price:.51,size:100}],bookTimeMs:nowMs},
+  down:{bid:.49,ask:.51,asks:[{price:.51,size:100}],bookTimeMs:nowMs}};
 const plan = () => buildPolymarketPaperPlan14({signal,sentiment,plan14Book:book,now:new Date(nowMs),portfolio:{cash:500,portfolioInitialized:true}});
 const close = (a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 
@@ -69,6 +70,62 @@ test('four independent funded lanes debit cash, pay fees, preserve one coin/wind
   assert.equal(observePlan14ProfitExperiment(s,other,{...sentiment,marketSlug:'eth-test'},nowMs).length,4);
 });
 
+test('experiment walks sorted real asks for $10 and records consumed depth and per-level fees',()=>{
+  const depth=[{price:'0.60',size:'100'},{price:'0.51',size:'4'},
+    {price:0,size:10},{price:.4,size:-1},{price:'bad',size:50}];
+  const p=buildPolymarketPaperPlan14({signal,sentiment,now:new Date(nowMs),
+    plan14Book:{...book,up:{...book.up,asks:depth}}});
+  const s=createPlan14ProfitExperiment(nowMs);
+  assert.equal(observePlan14ProfitExperiment(s,p,sentiment,nowMs).length,4);
+  const o=s.lanes.baseline.open[0],shares=4+(10-4*.51)/.6;
+  close(o.avgFillPrice,10/shares);close(o.ask,o.avgFillPrice);
+  assert.equal(o.latencyPenalty,0);assert.equal(o.depthUsed.length,2);
+  assert.deepEqual(o.depthUsed[0],{price:.51,fillPrice:.51,shares:4,usd:2.04});
+  close(o.depthUsed[1].shares,(10-2.04)/.6);
+  close(o.depthUsed.reduce((sum,l)=>sum+l.usd,0),10);
+  close(o.feeUsd,.069972+.22288);
+  close(o.shares,shares-.069972/.51-.22288/.6);
+  assert.ok(s.lanes.baselineStress.open[0].avgFillPrice>o.avgFillPrice);
+});
+
+test('latency cents are adverse on the selected down asks and stack with stress slippage',()=>{
+  const p=plan();
+  p.profitExperiment.asks.down=[{price:.51,size:100}];
+  p.profitExperiment.asks.up=[{price:.8,size:100}];
+  for(const key of ['baseline','candidate']) p.profitExperiment[key].selected={...p.profitExperiment[key].selected,direction:'down'};
+  const s=createPlan14ProfitExperiment(nowMs);
+  const events=observePlan14ProfitExperiment(s,p,sentiment,nowMs,.07,{plan14ProfitExperimentLatencyPenaltyCents:2});
+  assert.equal(events.length,4);
+  for(const {order:o} of events){
+    const price=o.lane.endsWith('Stress')?.54:.53;
+    assert.equal(o.direction,'down');close(o.avgFillPrice,price);close(o.latencyPenalty,.02);
+    close(o.depthUsed[0].fillPrice,price);close(o.depthUsed[0].shares,10/price);
+    assert.equal(o.usd,10);
+  }
+});
+
+test('missing or insufficient depth skips without debit or reserving the window; retry can fill',()=>{
+  for(const asks of [undefined,[],[{price:.51,size:19}], [{price:.51,size:Infinity}]]){
+    const s=createPlan14ProfitExperiment(nowMs),p=plan();p.profitExperiment.asks.up=asks;
+    assert.deepEqual(observePlan14ProfitExperiment(s,p,sentiment,nowMs),[]);
+    for(const lane of Object.values(s.lanes)){
+      assert.equal(lane.cash,500);assert.equal(lane.invested,0);assert.equal(lane.filled,0);
+      assert.equal(lane.skips,1);assert.deepEqual(lane.open,[]);assert.deepEqual(lane.lastFilledTargetMs,{});
+    }
+    p.profitExperiment.asks.up=[{price:.51,size:100}];
+    assert.equal(observePlan14ProfitExperiment(s,p,sentiment,nowMs).length,4);
+  }
+});
+
+test('invalid latency or penalized prices at one skip experiment fills',()=>{
+  for(const cents of [-1,NaN,Infinity,49]){
+    const s=createPlan14ProfitExperiment(nowMs);
+    assert.deepEqual(observePlan14ProfitExperiment(s,plan(),sentiment,nowMs,.07,
+      {plan14ProfitExperimentLatencyPenaltyCents:cents}),[]);
+    assert.ok(Object.values(s.lanes).every(l=>l.cash===500 && l.skips===1));
+  }
+});
+
 test('official outcome and redemption delay are mandatory; no repeated settlement or free future capital',()=>{
   const s=createPlan14ProfitExperiment(nowMs);observePlan14ProfitExperiment(s,plan(),sentiment,nowMs);
   resolvePlan14ProfitExperiment(s,sentiment.marketSlug,{actualDirection:'up',priceSource:'binance'},targetMs+20000);
@@ -116,7 +173,8 @@ test('service officially settles without touching main cash, orders or auto stat
 test('runtime opportunity integration persists/reloads funded ledgers and append-only entries',async()=>{
   const folder=await mkdtemp(join(tmpdir(),'plan14-profit-test-'));
   try{
-    const s=new PolymarketTradingService({config:{plan14Enabled:true,plan14ProfitExperimentEnabled:true},stateDir:folder});
+    const s=new PolymarketTradingService({config:{plan14Enabled:true,plan14ProfitExperimentEnabled:true,
+      plan14ProfitExperimentLatencyPenaltyCents:2},stateDir:folder});
     const bucket=s.getBucket('plan14');bucket.auto.enabled=true;
     const t=Date.now(),n=new Date(t),target=new Date(t+240000).toISOString();
     const freshSignal={...signal,prediction:{...signal.prediction,targetTimeIso:target},
@@ -132,6 +190,8 @@ test('runtime opportunity integration persists/reloads funded ledgers and append
     const file=join(folder,'plan14-research',`${n.toISOString().slice(0,10)}-experiments.jsonl`);
     const events=(await readFile(file,'utf8')).trim().split('\n').map(JSON.parse);
     assert.equal(events.length,4);assert.ok(events.every(e=>e.type==='entry'));
+    assert.ok(events.every(e=>e.order.latencyPenalty===.02 && e.order.depthUsed.length===1));
+    close(events.find(e=>e.order.lane==='baseline').order.avgFillPrice,.53);
     const reloaded=new PolymarketTradingService({config:{plan14Enabled:true,plan14ProfitExperimentEnabled:true},stateDir:folder});
     await reloaded.load();
     assert.deepEqual(reloaded.getBucket('plan14').plan14ProfitExperiment,bucket.plan14ProfitExperiment);

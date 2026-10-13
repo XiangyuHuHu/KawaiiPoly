@@ -3946,7 +3946,7 @@ async function withFreshPlan14Spot(signal, symbol) {
 
 async function fetchPlan14Book(tokenId) {
   const book = normalizeOrderBook(await polymarketClient.getOrderBook(tokenId));
-  return { bid: book.bestBid, ask: book.bestAsk, bookTimeMs: Date.now() };
+  return { bid: book.bestBid, ask: book.bestAsk, asks: book.asks, bookTimeMs: Date.now() };
 }
 
 /** Prescreen on cached quotes, then confirm on fresh spot + both CLOB books (only those cost traffic). */

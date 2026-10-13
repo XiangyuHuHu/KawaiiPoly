@@ -1,6 +1,6 @@
 // Independently funded entry comparison. Neither ledger can write to the main portfolio.
 import { PLAN14_VERSION, PLAN14_PROFIT_EXPERIMENT_VERSION } from './polymarketPlan14.js';
-import { polymarketCryptoTakerFee } from './polymarketMarketUtils.js';
+import { normalizeOrderBook, polymarketCryptoTakerFee } from './polymarketMarketUtils.js';
 const round = n => Math.round(n * 100) / 100;
 export const PROFIT_EXPERIMENT_ID = 'plan14-entry-ab-20261005-v1';
 export function createPlan14ProfitExperiment(nowMs) {
@@ -14,7 +14,26 @@ export function createPlan14ProfitExperiment(nowMs) {
     startingCash: 500, fixedOrderUsd: 10, redemptionDelayMs: 240000, lanes, recentSettlements: [] };
 }
 
-export function observePlan14ProfitExperiment(state, plan, sentiment, nowMs, feeRate = .07) {
+// Buy a fixed notional using real share quantities, including adverse execution costs.
+// Missing/insufficient depth never falls back to a quote or creates a partial order.
+function simulateBuy(asks, usd, adversePrice, feeRate) {
+  let remaining = usd, grossShares = 0, netShares = 0, feeUsd = 0;
+  const depthUsed = [];
+  for (const level of normalizeOrderBook({ asks }).asks) {
+    const fillPrice = level.price + adversePrice;
+    if (!(fillPrice > 0 && fillPrice < 1) || !Number.isFinite(level.size)) return null;
+    const shares = Math.min(level.size, remaining / fillPrice);
+    const spent = shares * fillPrice;
+    const fee = polymarketCryptoTakerFee(shares, fillPrice, feeRate);
+    depthUsed.push({ price: level.price, fillPrice, shares, usd: spent });
+    grossShares += shares; netShares += shares - fee / fillPrice; feeUsd += fee;
+    remaining -= spent;
+    if (remaining <= 1e-9) return { avgFillPrice: usd / grossShares, depthUsed, shares: netShares, feeUsd };
+  }
+  return null;
+}
+
+export function observePlan14ProfitExperiment(state, plan, sentiment, nowMs, feeRate = .07, config = {}) {
   const events = [];
   if (!state || state.id !== PROFIT_EXPERIMENT_ID || !plan.profitExperiment || plan.timeframe !== '5m') return events;
   const observedMs = Date.parse(plan.generatedAtIso), targetMs = Date.parse(plan.targetTimeIso);
@@ -29,13 +48,16 @@ export function observePlan14ProfitExperiment(state, plan, sentiment, nowMs, fee
     if ([model.inputs?.quoteTimeMs, model.bookTimeMs?.up, model.bookTimeMs?.down]
       .some(t => !Number.isFinite(t) || nowMs - t < -2000 || nowMs - t > 10000)) continue;
     if ((lane.lastFilledTargetMs[plan.symbol] || 0) >= targetMs) continue;
-    const ask = selected.ask + lane.slippage, usd = state.fixedOrderUsd;
-    if (!(ask > 0 && ask < 1) || lane.cash + 1e-9 < usd) { lane.skips++; continue; }
-    const grossShares = usd / ask, feeUsd = polymarketCryptoTakerFee(grossShares, ask, feeRate);
+    const cents = Number(config.plan14ProfitExperimentLatencyPenaltyCents ?? 0);
+    const usd = state.fixedOrderUsd;
+    if (!Number.isFinite(cents) || cents < 0 || lane.cash + 1e-9 < usd) { lane.skips++; continue; }
+    const latencyPenalty = cents / 100;
+    const fill = simulateBuy(plan.profitExperiment.asks?.[selected.direction], usd, lane.slippage + latencyPenalty, feeRate);
+    if (!fill) { lane.skips++; continue; }
     const order = { id: `${key}|${plan.symbol}|${targetMs}`, lane: key, symbol: plan.symbol, timeframe: '5m',
       marketSlug, slotIso: plan.slotIso, targetTimeIso: plan.targetTimeIso, direction: selected.direction,
       entryMs: observedMs, targetMs, releaseMs: targetMs + state.redemptionDelayMs,
-      ask, usd, shares: grossShares - feeUsd / ask, feeUsd, feeRate,
+      ask: fill.avgFillPrice, usd, ...fill, latencyPenalty, feeRate,
       p: selected.p, status: 'open', settlementStatus: 'open' };
     lane.cash = round(lane.cash - usd); lane.invested = round(lane.invested + usd); lane.filled++;
     lane.lastFilledTargetMs[plan.symbol] = targetMs; lane.open.push(order);
@@ -90,5 +112,5 @@ export function summarizePlan14ProfitExperiment(state) {
     fixedOrderUsd: state.fixedOrderUsd, redemptionDelayMs: state.redemptionDelayMs, lanes,
     delta: round(lanes.candidate.realizedPnl - lanes.baseline.realizedPnl),
     stressDelta: round(lanes.candidateStress.realizedPnl - lanes.baselineStress.realizedPnl),
-    note: 'Four independent $500/$10 paper ledgers, same fresh quote stream; both policies hold to official settlement with 4-minute minimum redemption delay. Entry comparison only, not the main v9 exit/Kelly account. +1c ledgers stress entry slippage. No depth/latency simulation; no automatic promotion.' };
+    note: 'Four independent $500/$10 paper ledgers, same fresh book depth; both policies hold to official settlement with 4-minute minimum redemption delay. Entry comparison only, not the main v9 exit/Kelly account. Buys walk asks with configured adverse latency cents; insufficient depth is skipped. +1c ledgers stress entry slippage. No automatic promotion.' };
 }
