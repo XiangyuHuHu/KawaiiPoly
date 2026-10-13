@@ -53,7 +53,7 @@ test('parses hit-daily and above families, ignores other events', () => {
 });
 
 test('buys Yes when the market underprices the touch after fees', () => {
-  const data = { spot: 84000, iv: 45, high: 84500, low: 83000 };
+  const data = { spot: 84000, iv: 45, ivTimestampMs: NOW, high: 84500, low: 83000 };
   const p = plan17Probability('up', 84000, 86000, 0.45 * 1.05, 12 / (365 * 24));
   const decision = evaluatePlan17Row({ event: HIT_EVENT, market: market(), data, yesBook: book(0.04, 0.05), noBook: book(0.95, 0.96), nowMs: NOW });
   assert.ok(p > 0.15 && p < 0.25, `model ${p}`);
@@ -64,7 +64,7 @@ test('buys Yes when the market underprices the touch after fees', () => {
 });
 
 test('skips touched barriers, fair prices, wide books and the last 30 minutes', () => {
-  const data = { spot: 84000, iv: 45, high: 86100, low: 83000 };
+  const data = { spot: 84000, iv: 45, ivTimestampMs: NOW, high: 86100, low: 83000 };
   assert.equal(evaluatePlan17Row({ event: HIT_EVENT, market: market(), data, yesBook: book(0.08, 0.09), noBook: book(0.91, 0.92), nowMs: NOW }).reason, 'already_touched');
   const fresh = { ...data, high: 84500 };
   const p = plan17Probability('up', 84000, 86000, 0.45 * 1.05, 12 / (365 * 24));
@@ -92,7 +92,7 @@ test('kelly stake matches p − q at even money and shrinks to half Kelly', () =
 });
 
 test('caps buys per event and skips held markets', () => {
-  const data = { spot: 84000, iv: 45, high: 84100, low: 83900 };
+  const data = { spot: 84000, iv: 45, ivTimestampMs: NOW, high: 84100, low: 83900 };
   const rows = [86000, 86500, 87000, 87500, 88000].map((strike) => ({
     event: HIT_EVENT,
     market: market({ question: `Will Bitcoin reach $${strike.toLocaleString('en-US')} on October 10?`, slug: `reach-${strike}` }),
@@ -105,4 +105,19 @@ test('caps buys per event and skips held markets', () => {
   assert.ok(picks.every((pick) => pick.marketSlug !== 'reach-86000'));
   const capped = selectPlan17Buys({ rows, nowMs: NOW, maxPerEvent: 2, minAsk: 0.01, heldPerEvent: new Map([[HIT_EVENT.slug, 2]]) });
   assert.equal(capped.length, 0);
+});
+
+test('entry selection rejects missing, invalid and stale IV timestamps with configurable age', () => {
+  const row = { event: HIT_EVENT, market: market(), data: { spot: 84000, iv: 45, ivTimestampMs: NOW }, yesBook: book(0.04, 0.05), noBook: book(0.95, 0.96) };
+  const evaluate = (data, options = {}) => evaluatePlan17Row({ ...row, data, nowMs: NOW, ...options });
+  assert.equal(evaluate({ ...row.data, ivTimestampMs: NOW - 300000 }).ok, true);
+  const stale = { ...row.data, ivTimestampMs: NOW - 300001 };
+  assert.equal(evaluate(stale).reason, 'iv_stale');
+  assert.equal(evaluate(stale, { maxIvAgeMs: 400000 }).ok, true);
+  for (const ivTimestampMs of [undefined, null, NaN, 0, NOW + 1]) {
+    assert.equal(evaluate({ ...row.data, ivTimestampMs }).reason, 'iv_timestamp_invalid');
+  }
+  assert.equal(evaluate({ spot: 84000 }).reason, 'iv_missing');
+  assert.equal(evaluate({ ...row.data, ivSkipReason: 'iv_unavailable' }).reason, 'iv_unavailable');
+  assert.deepEqual(selectPlan17Buys({ rows: [{ ...row, data: stale }], nowMs: NOW }), []);
 });

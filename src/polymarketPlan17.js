@@ -19,6 +19,7 @@ export const PLAN17_COINS = Object.freeze({
 export const PLAN17_DEFAULTS = Object.freeze({
   volScale: Object.freeze({ hitDaily: 1.05, above: 0.85 }),
   families: Object.freeze(['hitDaily', 'above']),
+  maxIvAgeMs: 300_000,
   minEdge: 0.10,
   minAsk: 0.03,
   maxAsk: 0.95,
@@ -32,6 +33,15 @@ export const PLAN17_DEFAULTS = Object.freeze({
 function finite(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+export function plan17IvSkipReason(data, nowMs, maxIvAgeMs = PLAN17_DEFAULTS.maxIvAgeMs) {
+  if (data?.ivSkipReason) return data.ivSkipReason;
+  if (!(Number.isFinite(data?.iv) && data.iv > 0)) return 'iv_missing';
+  const timestamp = data?.ivTimestampMs;
+  if (!Number.isFinite(timestamp) || timestamp <= 0 || timestamp > nowMs) return 'iv_timestamp_invalid';
+  const maxAge = Number.isFinite(maxIvAgeMs) && maxIvAgeMs >= 0 ? maxIvAgeMs : PLAN17_DEFAULTS.maxIvAgeMs;
+  return nowMs - timestamp > maxAge ? 'iv_stale' : null;
 }
 
 function round4(value) {
@@ -112,7 +122,7 @@ function quoteOk(book, { minAsk, maxAsk, maxSpread }) {
 }
 
 /**
- * market data: { spot, iv (DVOL, percent), high, low } where high/low are the
+ * market data: { spot, iv (DVOL, percent), ivTimestampMs, high, low } where high/low are the
  * Binance 1m extremes since the hit window opened.
  */
 export function evaluatePlan17Row({
@@ -132,6 +142,8 @@ export function evaluatePlan17Row({
   const minutesLeft = (parsed.endMs - nowMs) / 60_000;
   if (minutesLeft < cfg.minMinutesLeft) return { ok: false, reason: 'too_close' };
   if (minutesLeft / 60 > (cfg.maxHoursLeft?.[parsed.family] ?? 24)) return { ok: false, reason: 'too_far' };
+  const ivReason = plan17IvSkipReason(data, nowMs, cfg.maxIvAgeMs);
+  if (ivReason) return { ok: false, reason: ivReason };
   const spot = finite(data?.spot); const iv = finite(data?.iv);
   if (!(spot > 0) || !(iv > 0)) return { ok: false, reason: 'missing_market_data' };
   if (parsed.type === 'up' && finite(data?.high) != null && data.high >= parsed.strike) return { ok: false, reason: 'already_touched' };
@@ -176,6 +188,7 @@ export function evaluatePlan17Row({
     tokenId: selected.tokenId,
     spot,
     iv,
+    ivTimestampMs: data.ivTimestampMs,
     volScale: scale,
     marketSlug: String(market.slug || ''),
     conditionId: market.conditionId || null,

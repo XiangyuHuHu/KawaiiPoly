@@ -947,6 +947,7 @@ function buildPolymarketConfig() {
     plan17Enabled: process.env.POLYMARKET_PLAN17_ENABLED !== 'false',
     plan17NewEntriesEnabled: process.env.POLYMARKET_PLAN17_NEW_ENTRIES_ENABLED === 'true',
     plan17StartingCash: Number(process.env.POLYMARKET_PLAN17_STARTING_CASH || 500),
+    plan17MaxIvAgeMs: Number(process.env.POLYMARKET_PLAN17_MAX_IV_AGE_MS || 300000),
     plan17MinEdge: Number(process.env.POLYMARKET_PLAN17_MIN_EDGE || 0.10),
     plan17MinAsk: Number(process.env.POLYMARKET_PLAN17_MIN_ASK || 0.03),
     plan17MaxAsk: Number(process.env.POLYMARKET_PLAN17_MAX_ASK || 0.95),

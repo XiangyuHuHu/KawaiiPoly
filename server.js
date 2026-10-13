@@ -24,7 +24,7 @@ import { evaluatePlan15Candidate } from './src/polymarketPlan15.js';
 import { parsePlan16Question, selectPlan16Buys, ensembleYesProbability } from './src/polymarketPlan16.js';
 import { stationFromDescription } from './src/plan16Stations.js';
 import { fetchPlan16Ensemble } from './src/plan16Forecast.js';
-import { PLAN17_COINS, parsePlan17Market, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
+import { PLAN17_COINS, parsePlan17Market, plan17IvSkipReason, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
 import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
 import {
@@ -4922,11 +4922,12 @@ async function runPlan17PaperScan() {
       const starts = rows.filter((row) => row.parsed.coin === coin && Number.isFinite(row.parsed.windowStartMs)).map((row) => row.parsed.windowStartMs);
       try {
         const [iv, spot] = await Promise.all([
-          fetchPlan17Dvol(meta.dvol, nowMs),
+          fetchPlan17Dvol(meta.dvol, nowMs, { maxIvAgeMs: pm.plan17MaxIvAgeMs }),
           fetchPlan17Spot(meta.binance, starts.length ? Math.min(...starts) : null, nowMs)
         ]);
-        dataByCoin[coin] = { iv, ...spot };
+        dataByCoin[coin] = { ...iv, ...spot };
       } catch (error) {
+        dataByCoin[coin] = { ivSkipReason: error.reason || 'missing_market_data' };
         console.error(`Plan17 market data ${coin} failed: ${error.message}`);
       }
     }
@@ -4947,6 +4948,11 @@ async function runPlan17PaperScan() {
     for (const order of openOrders) {
       if (order.plan17EventSlug) heldPerEvent.set(order.plan17EventSlug, (heldPerEvent.get(order.plan17EventSlug) || 0) + 1);
     }
+    const entryNowMs = Date.now();
+    for (const data of Object.values(dataByCoin)) {
+      const reason = plan17IvSkipReason(data, entryNowMs, pm.plan17MaxIvAgeMs);
+      if (reason) data.ivSkipReason = reason;
+    }
     const picks = selectPlan17Buys({
       rows: rows.map((row) => {
         const outcomes = asJsonList(row.market.outcomes).map((name) => String(name).toLowerCase());
@@ -4961,7 +4967,8 @@ async function runPlan17PaperScan() {
       }),
       heldSlugs,
       heldPerEvent,
-      nowMs,
+      nowMs: entryNowMs,
+      maxIvAgeMs: pm.plan17MaxIvAgeMs,
       minEdge,
       minAsk: Number(pm.plan17MinAsk) || 0.03,
       maxAsk: Number(pm.plan17MaxAsk) || 0.95,
@@ -4976,6 +4983,11 @@ async function runPlan17PaperScan() {
     const scanCap = kellyEnabled ? equity * (Number(pm.plan17KellyScanCap) || 0.25) : Infinity;
     for (const pick of picks) {
       if (bought.length >= maxNew) break;
+      const ivReason = plan17IvSkipReason(pick, Date.now(), pm.plan17MaxIvAgeMs);
+      if (ivReason) {
+        dataByCoin[pick.coin].ivSkipReason = ivReason;
+        continue;
+      }
       let usd = orderUsd;
       let kelly = null;
       if (kellyEnabled) {
@@ -5010,11 +5022,13 @@ async function runPlan17PaperScan() {
       const kellyText = kelly ? ` · 半凯利 ${(kelly.appliedFraction * 100).toFixed(1)}%（满仓 ${(kelly.fullKelly * 100).toFixed(1)}%）` : '';
       console.log(`Polymarket plan17 paper order: ${order.outcome} $${order.usd} at ${order.limitPrice} ${pick.title} (model ${pick.p}, edge ${pick.edge}${kellyText})`);
     }
-    const coinsText = Object.entries(dataByCoin).map(([coin, data]) => `${PLAN17_COINS[coin].symbol} ${Math.round(data.spot)} · IV ${data.iv}`).join(' · ');
+    const coinsText = Object.entries(dataByCoin).map(([coin, data]) => data.ivSkipReason ? `${PLAN17_COINS[coin].symbol}: ${data.ivSkipReason}` : `${PLAN17_COINS[coin].symbol} ${Math.round(data.spot)} · IV ${data.iv}`).join(' · ');
     const reason = bought.length
       ? `本轮买入 ${bought.length} 笔 · ${bought.map((order) => `${order.symbol} ${order.outcome} $${order.usd}`).join(' · ')}`
       : `本轮没有扣费后高出 ${(minEdge * 100).toFixed(0)}¢ 的档位（可解析 ${rows.length} · ${coinsText || '行情缺失'}）`;
-    await polymarketTrading.notePlan17Scan({ reason, bought: bought.length });
+    const skips = Object.entries(dataByCoin).filter(([, data]) => data.ivSkipReason)
+      .map(([coin, data]) => `${PLAN17_COINS[coin].symbol}: ${data.ivSkipReason}`).join(' · ');
+    await polymarketTrading.notePlan17Scan({ reason: bought.length && skips ? `${reason} · ${skips}` : reason, bought: bought.length });
     return { bought: bought.length };
   } finally {
     plan17ScanRunning = false;

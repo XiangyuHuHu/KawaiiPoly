@@ -1,6 +1,6 @@
+import { PLAN17_DEFAULTS, plan17IvSkipReason } from './polymarketPlan17.js';
+
 const BINANCE_HOSTS = ['https://data-api.binance.vision', 'https://api.binance.com'];
-const DVOL_TTL_MS = 5 * 60_000;
-const dvolCache = new Map();
 
 async function getJson(url) {
   const response = await fetch(url, { signal: AbortSignal.timeout(15_000) });
@@ -16,16 +16,30 @@ async function binance(path) {
   throw lastError || new Error('binance unavailable');
 }
 
-export async function fetchPlan17Dvol(currency, nowMs = Date.now()) {
-  const cached = dvolCache.get(currency);
-  if (cached && nowMs - cached.atMs < DVOL_TTL_MS) return cached.value;
-  const payload = await getJson(`https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=${currency}`
-    + `&start_timestamp=${nowMs - 3 * 3_600_000}&end_timestamp=${nowMs}&resolution=60`);
-  const rows = payload?.result?.data || [];
-  const value = Number(rows.at(-1)?.[4]);
-  if (!(value > 0)) throw new Error(`DVOL ${currency} missing`);
-  dvolCache.set(currency, { atMs: nowMs, value });
-  return value;
+export async function fetchPlan17Dvol(currency, nowMs = Date.now(), {
+  maxIvAgeMs = PLAN17_DEFAULTS.maxIvAgeMs,
+  sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+} = {}) {
+  const url = `https://www.deribit.com/api/v2/public/get_volatility_index_data?currency=${currency}`
+    + `&start_timestamp=${nowMs - 3 * 3_600_000}&end_timestamp=${nowMs}&resolution=60`;
+  const startedMs = Date.now();
+  let payload;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      payload = await getJson(url);
+      if (payload?.error) throw new Error(`Deribit: ${payload.error.message || 'RPC error'}`);
+      break;
+    } catch (cause) {
+      if (attempt === 2) throw Object.assign(new Error(`DVOL ${currency} unavailable: ${cause.message}`), { reason: 'iv_unavailable', cause });
+      await sleep(Math.min(1000, 250 * 2 ** attempt));
+    }
+  }
+  const rows = payload?.result?.data;
+  const row = Array.isArray(rows) ? rows.at(-1) : null;
+  const data = { iv: row?.[4], ivTimestampMs: row?.[0] };
+  const reason = plan17IvSkipReason(data, nowMs + Math.max(0, Date.now() - startedMs), maxIvAgeMs);
+  if (reason) throw Object.assign(new Error(`DVOL ${currency}: ${reason}`), { reason });
+  return data;
 }
 
 /**
