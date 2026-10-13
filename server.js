@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, join, normalize, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getConfig } from './src/config.js';
+import { buildActivePaperPlansView, paperPlanFlags } from './src/polymarketPaperPlansView.js';
 import { buildIntervalSignal, blendWithPolymarketSentiment, getIntervalSchedule } from './src/intervalSignal.js';
 import { createMockMarket, generateMockPriceSeries } from './src/mockMarket.js';
 import { PredictionRecorder } from './src/predictionRecorder.js';
@@ -465,8 +466,18 @@ async function handleApi(request, response, url) {
 
   if (request.method === 'GET' && url.pathname === '/api/polymarket/paper-plans') {
     const symbol = (url.searchParams.get('symbol') || 'BTC-USD').toUpperCase();
-    const planId = normalizePaperPlanId(url.searchParams.get('plan') || url.searchParams.get('planId'));
-    sendJson(response, 200, await buildPolymarketPaperPlansView(symbol, planId));
+    const requestedPlan = url.searchParams.get('plan') || url.searchParams.get('planId');
+    if (!requestedPlan) {
+      sendJson(response, 200, buildActivePaperPlansView({
+        symbol,
+        config: config.polymarket,
+        statusForPlan: (id) => polymarketTrading.status(id)
+      }));
+    } else {
+      const planId = normalizePaperPlanId(requestedPlan);
+      const view = await buildPolymarketPaperPlansView(symbol, planId);
+      sendJson(response, 200, { ...view, ...paperPlanFlags(planId, config.polymarket) });
+    }
     return;
   }
 
@@ -4631,7 +4642,7 @@ async function runPlan15PaperScan() {
           endDate: decision.endDate
         });
       } catch (error) {
-        if (/现金不足|未结算订单已满/.test(error.message || '')) break;
+        if (/现金不足|敞口上限|未结算订单已满/.test(error.message || '')) break;
         skips.push(error.message);
         continue;
       }
