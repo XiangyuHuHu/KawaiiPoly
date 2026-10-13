@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymarket 数据分析</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="polymarket-theme">
+    <div class="ambient" aria-hidden="true">
+      <span class="coin coin-btc">PM</span>
+      <span class="coin coin-eth">UP</span>
+      <span class="coin coin-sol">DN</span>
+      <span class="orbit orbit-a"></span>
+      <span class="orbit orbit-b"></span>
+    </div>
+    <main class="shell">
+      <nav class="top-nav">
+        <a href="http://127.0.0.1:3000/robinhood.html">加密量化台</a>
+        <a href="http://127.0.0.1:3000/ibkr.html">IBKR 股票量化台</a>
+        <a href="/polymarket.html">Polymarket 实盘</a>
+        <a href="/polymarket-paper.html">Polymarket 模拟</a>
+        <a href="/polymarket-paper.html#plan4" hidden>Plan4</a>
+        <a href="/polymarket-paper.html#plan8" hidden>Plan8</a>
+        <a href="/polymarket-paper.html#plan9" hidden>Plan9</a>
+        <a href="/polymarket-paper.html#plan10" hidden>Plan10</a>
+        <a href="/polymarket-markets.html">市场扩展</a>
+        <a href="/polymarket-analytics.html" class="active">数据分析</a>
+        <a href="/winrate.html">胜率计算</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Polymarket Analytics</p>
+          <h1>数据分析</h1>
+          <p class="subhead">只看当前六本模拟账：Plan14 四币 5 分钟（已停新仓），Plan15 事件盘，Plan16 天气预报（已停新仓），Plan17 BTC/ETH 价格档位，Plan18 梅花易数对照，Plan19 小六壬对照。默认模拟。还没结算的单子记在「未结算」，不进胜率。</p>
+          <div class="mode-actions">
+            <a class="primary-button" href="/polymarket-paper.html">返回模拟盘</a>
+            <a href="/polymarket.html" class="mode-link">实盘页</a>
+          </div>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <span id="pmAnalyticsStatus">加载分析数据中...</span>
+        </div>
+      </header>
+
+      <section class="panel analytics-controls-panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Filters</span>
+            <h2>筛选</h2>
+          </div>
+          <div class="head-actions">
+            <button id="pmAnalyticsRefresh" class="primary-button" type="button">刷新</button>
+          </div>
+        </div>
+
+        <div class="analytics-filter-row">
+          <div class="pm-plan-switcher" role="tablist" aria-label="数据源">
+            <button type="button" class="pm-tab active" data-source-tab="paper" role="tab" aria-selected="true">模拟</button>
+            <button type="button" class="pm-tab" data-source-tab="live" role="tab" aria-selected="false">实盘</button>
+            <button type="button" class="pm-tab" data-source-tab="all" role="tab" aria-selected="false">合并</button>
+          </div>
+          <div class="pm-plan-switcher" role="tablist" aria-label="策略">
+            <button type="button" class="pm-tab active" data-plan-tab="current" role="tab" aria-selected="true">全部</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan14" role="tab" aria-selected="false">Plan14</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan15" role="tab" aria-selected="false">Plan15</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan16" role="tab" aria-selected="false">Plan16</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan17" role="tab" aria-selected="false">Plan17</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan18" role="tab" aria-selected="false">Plan18</button>
+            <button type="button" class="pm-tab" data-plan-tab="plan19" role="tab" aria-selected="false">Plan19</button>
+          </div>
+        </div>
+
+        <div class="analytics-filter-row">
+          <div class="pm-plan-switcher pm-symbol-tabs" id="pmAnalyticsSymbols" role="tablist" aria-label="币种或分类">
+            <button type="button" class="pm-tab active" data-symbol-tab="all" role="tab" aria-selected="true">全部</button>
+          </div>
+          <label class="analytics-lookback">
+            <span>回看天数</span>
+            <select id="pmAnalyticsLookback">
+              <option value="7">7</option>
+              <option value="14">14</option>
+              <option value="30" selected>30</option>
+              <option value="60">60</option>
+              <option value="90">90</option>
+            </select>
+          </label>
+        </div>
+        <p class="pm-plan-switcher-hint" id="pmAnalyticsHint">模拟 · Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 · 全部 · 30 天</p>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Overview</span>
+            <h2>概览</h2>
+          </div>
+        </div>
+        <section class="summary-strip embedded-summary" id="pmAnalyticsOverview">
+          <div><span>样本</span><strong>--</strong></div>
+          <div><span>胜率</span><strong>--</strong></div>
+          <div><span>胜 / 负</span><strong>--</strong></div>
+          <div><span>总 PnL</span><strong>--</strong></div>
+          <div><span>模拟 / 实盘</span><strong>--</strong></div>
+          <div><span>入场前已有风险证据</span><strong>--</strong></div>
+        </section>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Symbols</span>
+            <h2>分币种 / 分类</h2>
+          </div>
+        </div>
+        <div class="analytics-table-wrap">
+          <table class="pm-orders analytics-table" id="pmAnalyticsBySymbol">
+            <thead>
+              <tr>
+                <th>币种 / 分类</th>
+                <th>笔数</th>
+                <th>胜</th>
+                <th>负</th>
+                <th>胜率</th>
+                <th>PnL</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Loss Reasons</span>
+            <h2>亏损 / 判断错误原因</h2>
+          </div>
+        </div>
+        <section class="summary-strip embedded-summary" id="pmAnalyticsReversalStrip">
+          <div><span>反转族亏损</span><strong>--</strong></div>
+          <div><span>入场后反转</span><strong>--</strong></div>
+          <div><span>短窗反转</span><strong>--</strong></div>
+          <div><span>PM 反转标记</span><strong>--</strong></div>
+        </section>
+        <div class="analytics-table-wrap">
+          <table class="pm-orders analytics-table" id="pmAnalyticsLossReasons">
+            <thead>
+              <tr>
+                <th>原因</th>
+                <th>次数</th>
+                <th>占比</th>
+                <th>PnL</th>
+                <th>性质</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Exits</span>
+            <h2>退出分布 · 止盈/止损</h2>
+          </div>
+        </div>
+        <section class="summary-strip embedded-summary" id="pmAnalyticsExitStrip">
+          <div><span>止盈笔数</span><strong>--</strong></div>
+          <div><span>止损笔数</span><strong>--</strong></div>
+          <div><span>到期笔数</span><strong>--</strong></div>
+          <div><span>TP 占比(提前退)</span><strong>--</strong></div>
+          <div><span>到期胜率</span><strong>--</strong></div>
+        </section>
+        <div class="analytics-table-wrap">
+          <table class="pm-orders analytics-table" id="pmAnalyticsExits">
+            <thead>
+              <tr>
+                <th>退出状态</th>
+                <th>笔数</th>
+                <th>胜</th>
+                <th>负</th>
+                <th>胜率</th>
+                <th>PnL</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Decision Audit</span>
+            <h2>判断链回溯</h2>
+          </div>
+        </div>
+        <p class="muted">事后结果只用于定位判断模块；只有标记为“入场前可见”的特征，才可能进入未来策略。入场前可见特征会同时统计盈利单和亏损单。</p>
+        <section class="summary-strip embedded-summary" id="pmAnalyticsGateStrip">
+          <div><span>样本数</span><strong>--</strong></div>
+          <div><span>方向结果覆盖</span><strong>--</strong></div>
+          <div><span>估值快照覆盖</span><strong>--</strong></div>
+          <div><span>信号质量覆盖</span><strong>--</strong></div>
+          <div><span>完整判断链覆盖</span><strong>--</strong></div>
+        </section>
+        <div class="analytics-table-wrap">
+          <table class="pm-orders analytics-table" id="pmAnalyticsGateTop">
+            <thead>
+              <tr>
+                <th>判断模块</th>
+                <th>诊断切片</th>
+                <th>证据</th>
+                <th>样本</th>
+                <th>胜 / 负</th>
+                <th>胜率</th>
+                <th>盈亏平衡</th>
+                <th>价格优势</th>
+                <th>PnL</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" id="pmAnalyticsPlanSpecificPanel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Plan Specific</span>
+            <h2>Plan 特有</h2>
+          </div>
+        </div>
+        <div id="pmAnalyticsPlanSpecific" class="analytics-plan-specific">
+          <p class="muted">选择 Plan 或查看全部时展示特有模块。</p>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Calibration</span>
+            <h2>置信度校准</h2>
+          </div>
+        </div>
+        <div class="analytics-table-wrap">
+          <table class="pm-orders analytics-table" id="pmAnalyticsCalibration">
+            <thead>
+              <tr>
+                <th>置信度桶</th>
+                <th>样本</th>
+                <th>胜率</th>
+                <th>均 PnL</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="/polymarket-analytics.js" type="module"></script>
+  </body>
+</html>

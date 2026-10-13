@@ -1,0 +1,27 @@
+{
+  "name": "kawaii-poly",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "polymarket:derive-key": "node scripts/polymarket-derive-key.js",
+    "polymarket:deposit-wallet": "node scripts/polymarket-deposit-wallet.js",
+    "test": "node --test test/*.test.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "@polymarket/builder-relayer-client": "^0.0.10",
+    "@polymarket/builder-signing-sdk": "^1.0.0",
+    "@polymarket/clob-client": "^5.8.1",
+    "@polymarket/clob-client-v2": "^1.0.8",
+    "dotenv": "^16.4.7",
+    "kawaii-signal": "file:./packages/kawaii-signal",
+    "tweetnacl": "^1.0.3",
+    "viem": "^2.54.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.60.0"
+  }
+}

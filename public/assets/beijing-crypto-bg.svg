@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Beijing crypto trading skyline">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071014"/>
+      <stop offset="0.52" stop-color="#12312f"/>
+      <stop offset="1" stop-color="#0a0d10"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff1b8"/>
+      <stop offset="1" stop-color="#c8953f"/>
+    </linearGradient>
+    <filter id="soft-glow">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <g opacity="0.18" stroke="#d9b46f" stroke-width="1">
+    <path d="M0 160H1600M0 260H1600M0 360H1600M0 460H1600M0 560H1600"/>
+    <path d="M120 0V900M260 0V900M400 0V900M540 0V900M680 0V900M820 0V900M960 0V900M1100 0V900M1240 0V900M1380 0V900"/>
+  </g>
+  <g opacity="0.38" fill="none" stroke="#7de0d4" stroke-width="3" filter="url(#soft-glow)">
+    <path d="M86 545C198 520 264 584 360 558S514 422 640 468s180 116 316 76 174-196 306-170 178 118 262 94"/>
+    <path d="M104 624l92-58 78 46 88-96 90 54 118-144 104 92 130-130 110 78 138-182 104 100 94-48"/>
+  </g>
+  <g opacity="0.85">
+    <path d="M0 666h114l38-80 52 80h96l30-118 54 118h116l42-72 58 72h138l50-150 72 150h740v234H0z" fill="#071014"/>
+    <path d="M214 676h112v224H214zM360 592h72v308h-72zM482 642h90v258h-90zM628 604h82v296h-82zM760 560h92v340h-92zM918 632h92v268h-92zM1070 590h102v310h-102zM1228 642h84v258h-84zM1370 596h104v304h-104z" fill="#101c1f"/>
+    <path d="M684 675c48-126 138-126 184 0h-50c-24-76-60-78-84 0z" fill="#132629"/>
+    <path d="M772 674c34-106 102-108 138 0h-38c-22-66-48-66-70 0z" fill="#20373b"/>
+  </g>
+  <g opacity="0.68" fill="none" stroke="#d9b46f" stroke-width="8" stroke-linecap="round">
+    <path d="M246 680c74-44 132-44 206 0"/>
+    <path d="M256 656c64-32 118-32 182 0"/>
+    <path d="M1260 662c54-42 118-42 172 0"/>
+  </g>
+  <g filter="url(#soft-glow)">
+    <circle cx="1222" cy="210" r="82" fill="none" stroke="url(#gold)" stroke-width="5"/>
+    <text x="1222" y="224" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="34" font-weight="800" fill="#f5d58a">BTC</text>
+    <circle cx="305" cy="285" r="62" fill="none" stroke="#7de0d4" stroke-width="4"/>
+    <text x="305" y="298" text-anchor="middle" font-family="Inter, Arial, sans-serif" font-size="28" font-weight="800" fill="#9df1e7">ETH</text>
+  </g>
+  <g opacity="0.72" stroke="#d9b46f" stroke-width="6">
+    <path d="M1045 310v95M1045 342h42v38h-42M1122 246v148M1122 284h42v64h-42M1198 330v124M1198 360h42v48h-42"/>
+  </g>
+  <g opacity="0.45" fill="#f5d58a">
+    <circle cx="148" cy="142" r="3"/><circle cx="202" cy="218" r="4"/><circle cx="1398" cy="162" r="3"/><circle cx="1328" cy="308" r="4"/><circle cx="486" cy="182" r="3"/><circle cx="912" cy="146" r="3"/>
+  </g>
+</svg>

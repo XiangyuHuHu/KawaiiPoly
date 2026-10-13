@@ -1,0 +1,194 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymarket 实盘控制台</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="polymarket-theme">
+    <div class="ambient" aria-hidden="true">
+      <span class="coin coin-btc">PM</span>
+      <span class="coin coin-eth">UP</span>
+      <span class="coin coin-sol">DN</span>
+      <span class="orbit orbit-a"></span>
+      <span class="orbit orbit-b"></span>
+    </div>
+    <main class="shell">
+      <nav class="top-nav">
+        <a href="http://127.0.0.1:3000/robinhood.html">加密量化台</a>
+        <a href="http://127.0.0.1:3000/ibkr.html">IBKR 股票量化台</a>
+        <a href="/polymarket.html" class="active">Polymarket 实盘</a>
+        <a href="/polymarket-paper.html">Polymarket 模拟</a>
+        <a href="/polymarket-markets.html">市场扩展</a>
+        <a href="/polymarket-analytics.html">数据分析</a>
+        <a href="/winrate.html">胜率计算</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Polymarket CLOB Live</p>
+          <h1>实盘控制台</h1>
+          <p class="subhead">连接 CLOB、监控余额，并按选定策略自动提交真实买单。需在后端开启 POLYMARKET_LIVE_TRADING_ENABLED。</p>
+          <div class="mode-actions">
+            <a class="primary-button" href="/polymarket-paper.html">进入模拟盘</a>
+            <a href="/polymarket.html" class="mode-link active">实盘页</a>
+          </div>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <span id="pmStatus">检查 Polymarket 实盘状态中...</span>
+        </div>
+      </header>
+
+      <section class="summary-strip">
+        <div><span>实盘开关</span><strong id="pmLiveMode">--</strong></div>
+        <div><span>认证状态</span><strong id="pmConfigured">--</strong></div>
+        <div><span>CLOB 可用余额</span><strong id="pmLiveBalance">--</strong></div>
+        <div><span>CLOB 授权</span><strong id="pmLiveAllowance">--</strong></div>
+        <div><span>Open orders</span><strong id="pmLiveOpenOrders">--</strong></div>
+        <div><span>账号限制</span><strong id="pmLiveClosedOnly">--</strong></div>
+        <div><span>Profile/Funder</span><strong id="pmLiveFunder">--</strong></div>
+        <div><span>Signer 钱包</span><strong id="pmLiveSigner">--</strong></div>
+        <div><span>Signature type</span><strong id="pmLiveSignatureType">--</strong></div>
+        <div><span>实盘监控</span><strong id="pmLiveControlMode">--</strong></div>
+        <div><span>自动实盘</span><strong id="pmLiveAutoMode">--</strong></div>
+        <div><span>自动策略</span><strong id="pmLiveAutoPlan">--</strong></div>
+        <div><span>实盘已结投入</span><strong id="pmLiveStartBalance">--</strong></div>
+        <div><span>实盘交易 PnL</span><strong id="pmLiveCurrentBalance">--</strong></div>
+        <div><span>实盘交易收益率</span><strong id="pmLiveReturn">--</strong></div>
+      </section>
+
+      <section class="grid">
+        <article class="panel market-panel live-readiness-panel live-auto-panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Live Auto</span>
+              <h2>自动实盘交易</h2>
+            </div>
+            <div class="action-row">
+              <button id="pmLiveAutoStopAll" class="secondary-button" type="button">全部停止</button>
+            </div>
+          </div>
+          <form id="pmLiveAutoForm" class="pm-live-order-form">
+            <div class="pm-live-order-grid">
+              <div class="pm-live-plan-label">策略
+                <div id="pmLiveAutoPlanButtons" class="pm-live-plan-buttons" role="group" aria-label="选择自动实盘策略">
+                  <p class="note">当前没有已批准的实盘策略。旧 plan 实盘已关；Plan14 必须先在模拟盘证明扣费后仍有优势。</p>
+                </div>
+              </div>
+              <label>周期
+                <select name="timeframes">
+                  <option value="both" selected>5m + 15m</option>
+                  <option value="5m">仅 5m</option>
+                  <option value="15m">仅 15m</option>
+                </select>
+              </label>
+              <div class="pm-live-plan-label">币种（可多选，同时运行）
+                <div id="pmLiveSymbolButtons" class="pm-live-plan-buttons pm-live-symbol-buttons" role="group" aria-label="选择自动实盘币种">
+                  <button type="button" class="pm-live-plan-toggle pm-live-symbol-toggle active" data-symbol="BTC-USD" aria-pressed="true">
+                    <span class="pm-live-plan-toggle-name">BTC</span>
+                    <span class="pm-live-plan-toggle-desc">Bitcoin</span>
+                  </button>
+                  <button type="button" class="pm-live-plan-toggle pm-live-symbol-toggle active" data-symbol="ETH-USD" aria-pressed="true">
+                    <span class="pm-live-plan-toggle-name">ETH</span>
+                    <span class="pm-live-plan-toggle-desc">Ethereum</span>
+                  </button>
+                  <button type="button" class="pm-live-plan-toggle pm-live-symbol-toggle active" data-symbol="SOL-USD" aria-pressed="true">
+                    <span class="pm-live-plan-toggle-name">SOL</span>
+                    <span class="pm-live-plan-toggle-desc">Solana</span>
+                  </button>
+                  <button type="button" class="pm-live-plan-toggle pm-live-symbol-toggle active" data-symbol="XRP-USD" aria-pressed="true">
+                    <span class="pm-live-plan-toggle-name">XRP</span>
+                    <span class="pm-live-plan-toggle-desc">Ripple</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="pm-live-risk-controls">
+              <div>
+                <strong>全策略日亏损保护</strong>
+                <small id="pmPlan3DailyLossLimitDetail">达到当天整体实盘亏损上限后停止所有 Plan 新开仓。</small>
+              </div>
+              <button id="pmPlan3DailyLossLimitToggle" class="secondary-button" type="button">读取中</button>
+            </div>
+          </form>
+          <div id="pmLiveAutoStatus" class="pm-auto-status stopped" aria-live="polite">
+            <span class="pm-auto-dot"></span>
+            <div class="pm-auto-status-copy">
+              <strong id="pmLiveAutoText">已停止</strong>
+              <small id="pmLiveAutoDetail">选择策略后点击启动，系统将按窗口自动评估并提交 CLOB 买单。</small>
+            </div>
+          </div>
+          <div id="pmLivePlanPreview" class="pm-live-plan-preview">
+            <div class="accuracy-empty">启动后显示最近一次检查/下单结果。</div>
+          </div>
+          <p class="note">自动实盘不会在启动服务时偷偷开启：「全部停止」可一键关停残留实盘循环。当前没有已批准的实盘策略，Plan14 仅模拟盘。</p>
+        </article>
+
+        <article class="panel market-panel live-readiness-panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Live Control</span>
+              <h2>实盘监控开关</h2>
+            </div>
+            <div class="action-row">
+              <button id="pmLiveControlStart" class="primary-button" type="button">开启实盘监控</button>
+              <button id="pmLiveControlStop" class="secondary-button" type="button">停止</button>
+            </div>
+          </div>
+          <div id="pmLiveControl" class="pm-auto-status stopped" aria-live="polite">
+            <span class="pm-auto-dot"></span>
+            <div class="pm-auto-status-copy">
+              <strong id="pmLiveControlText">未开启</strong>
+              <small id="pmLiveControlDetail">开启后记录当前 CLOB 余额作为收益率起点；真实下单仍受后端开关保护。</small>
+            </div>
+          </div>
+          <p class="note">这个按钮只控制实盘监控状态和收益率统计，不会绕过后端真实下单保护。</p>
+        </article>
+
+        <article class="panel market-panel live-readiness-panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Live Check</span>
+              <h2>实盘就绪检查</h2>
+            </div>
+            <button id="pmReadinessRefresh" class="primary-button" type="button">检查</button>
+          </div>
+          <div id="pmReadiness" class="pm-readiness">
+            <div class="accuracy-empty">等待检查。</div>
+          </div>
+          <p class="note">这里只做只读检查：profile、CLOB 余额、授权额度、open orders 和账号限制状态。</p>
+        </article>
+
+        <article class="panel market-panel live-readiness-panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Deposit Wallet</span>
+              <h2>Deposit Wallet 检查</h2>
+            </div>
+            <button id="pmDepositWalletRefresh" class="primary-button" type="button">检查</button>
+          </div>
+          <div id="pmDepositWallet" class="pm-readiness">
+            <div class="accuracy-empty">等待检查。</div>
+          </div>
+          <p class="note">显示 deposit wallet、relayer、signature type 和 CLOB buying power。不会创建钱包、不会授权、不会转账。</p>
+        </article>
+
+        <article class="panel paper-panel live-readiness-panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Live Records</span>
+              <h2>实盘操作记录</h2>
+            </div>
+            <button id="pmLiveOrdersRefresh" class="primary-button" type="button">刷新</button>
+          </div>
+          <div id="pmLiveOrders" class="paper-trades pm-orders">暂无实盘操作记录。</div>
+          <p class="note">实盘自动下单、被风控拦截、API 报错和 CLOB 回执都会记录在这里。成交记在 <strong>Profile/Funder</strong>（不是 Signer）；无交易哈希的 matched 会标「买入待确认」，不会当成已买入成功。请在 Polymarket 打开同一 funder 地址核对 Activity。</p>
+        </article>
+      </section>
+    </main>
+    <script src="/polymarket-live.js" type="module"></script>
+  </body>
+</html>

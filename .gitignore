@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+!.env.example
+.playwright-cli/
+_split-server.mjs
+*.pem
+*.key
+*.p12
+*.pfx
+data/
+.DS_Store
+npm-debug.log*
+*.log
+verification-*.png
+public/assets/beijing-crypto-bg.png

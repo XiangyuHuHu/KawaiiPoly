@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymarket 市场扩展</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      .board-tabs, .perp-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
+      .board-note { margin: 0 0 14px; color: #5c656c; }
+      .board-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+      .board-table th, .board-table td { padding: 10px 8px; text-align: left; border-bottom: 1px solid rgba(22, 26, 29, 0.08); vertical-align: top; }
+      .board-table th { color: #6b7280; font-weight: 600; font-size: 12px; }
+      .board-table a { color: inherit; }
+      .board-muted { color: #6b7280; font-size: 12px; }
+      .board-up { color: #0f7b4c; }
+      .board-down { color: #b42318; }
+      .board-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(22, 26, 29, 0.06); font-size: 12px; }
+      .board-empty { padding: 18px 0; color: #6b7280; }
+    </style>
+  </head>
+  <body class="polymarket-theme">
+    <main class="shell">
+      <nav class="top-nav">
+        <a href="http://127.0.0.1:3000/robinhood.html">加密量化台</a>
+        <a href="http://127.0.0.1:3000/ibkr.html">IBKR 股票量化台</a>
+        <a href="/polymarket.html">Polymarket 实盘</a>
+        <a href="/polymarket-paper.html">Polymarket 模拟</a>
+        <a href="/polymarket-markets.html" class="active">市场扩展</a>
+        <a href="/polymarket-analytics.html">数据分析</a>
+        <a href="/winrate.html">胜率计算</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Polymarket · Beyond Up/Down</p>
+          <h1>市场扩展</h1>
+          <p class="subhead">短窗加密涨跌继续走 Plan14。事件盘领先结果走 Plan15。温度盘另有 Plan16，用公开集合预报对照盘口。永续仍只读，不自动下单。</p>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <span id="boardStatus">正在读取市场...</span>
+        </div>
+      </header>
+
+      <section class="grid">
+        <article class="panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Predictions</span>
+              <h2>可核对结果的事件盘</h2>
+            </div>
+          </div>
+          <div id="predictionTabs" class="board-tabs" role="tablist"></div>
+          <p id="predictionWhy" class="board-note"></p>
+          <div id="predictionBoard"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head compact">
+            <div>
+              <span class="section-kicker">Perps</span>
+              <h2>永续行情 · 只读</h2>
+            </div>
+          </div>
+          <p id="perpsReason" class="board-note">公开接口：合约列表和 ticker。下单要单独的 proxy 钱包，这一步没有接进实盘。</p>
+          <div id="perpsTabs" class="perp-tabs"></div>
+          <div id="perpsBoard"></div>
+        </article>
+      </section>
+    </main>
+    <script src="/polymarket-markets.js"></script>
+  </body>
+</html>

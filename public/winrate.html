@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>胜率计算</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="ambient" aria-hidden="true">
+      <span class="coin coin-btc">BTC</span>
+      <span class="coin coin-eth">ETH</span>
+      <span class="coin coin-sol">SOL</span>
+      <span class="orbit orbit-a"></span>
+      <span class="orbit orbit-b"></span>
+    </div>
+    <main class="shell">
+      <nav class="top-nav">
+        <a href="http://127.0.0.1:3000/robinhood.html">加密量化台</a>
+        <a href="http://127.0.0.1:3000/ibkr.html">IBKR 股票量化台</a>
+        <a href="/polymarket.html">Polymarket 实盘</a>
+        <a href="/polymarket-paper.html">Polymarket 模拟</a>
+        <a href="/polymarket-markets.html">市场扩展</a>
+        <a href="/polymarket-analytics.html">数据分析</a>
+        <a href="/winrate.html" class="active">胜率计算</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Win Rate · Direction</p>
+          <h1>胜率计算</h1>
+          <p class="subhead">15m / 5m 涨跌判断独立页。整页同时展示 BTC / ETH / SOL / XRP 四币预测，下拉即可看全；窗口结算后回填对错；用历史条件胜率标注并加权新判断——样本不足时会明确提示。</p>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <span id="winrateStatus">等待刷新</span>
+        </div>
+      </header>
+
+      <section class="panel interval-panel winrate-panel">
+        <div class="panel-head">
+          <div>
+            <span class="section-kicker">15 / 5 分钟方向</span>
+            <h2>15 分钟 & 5 分钟涨跌判断</h2>
+            <p>下方按币种纵向排列，每个币左侧 5 分钟、右侧 15 分钟；未锁定前显示「未知」。历史 PM 锁定胜率与旧加密台同一批记录；同条件胜率在锁定后按币种/强度/时段切片。</p>
+          </div>
+          <div class="interval-actions">
+            <label class="winrate-lookback">
+              回看
+              <select id="winrateLookback">
+                <option value="7">7 日</option>
+                <option value="14" selected>14 日</option>
+                <option value="30">30 日</option>
+              </select>
+            </label>
+            <span id="winrateLoading" class="interval-loading">等待刷新</span>
+            <button id="refreshWinrate" type="button">立即刷新</button>
+          </div>
+        </div>
+
+        <div class="interval-summary winrate-schedule-grid">
+          <div class="winrate-schedule-col">
+            <span class="winrate-schedule-label">5 分钟</span>
+            <div><span>当前槽</span><strong id="winrateSlot5m">--:--</strong></div>
+            <div><span>下一次</span><strong id="winrateNext5m">--:--</strong></div>
+            <div><span>倒计时</span><strong id="winrateCountdown5m">--:--</strong></div>
+          </div>
+          <div class="winrate-schedule-col">
+            <span class="winrate-schedule-label">15 分钟</span>
+            <div><span>当前槽</span><strong id="winrateSlot15m">--:--</strong></div>
+            <div><span>下一次</span><strong id="winrateNext15m">--:--</strong></div>
+            <div><span>倒计时</span><strong id="winrateCountdown15m">--:--</strong></div>
+          </div>
+          <div class="winrate-schedule-source">
+            <span>判断来源</span>
+            <strong id="winrateSource">--</strong>
+          </div>
+        </div>
+
+        <div id="winrateGuidanceBanner" class="winrate-guidance-banner">历史样本将在此指导新判断；下拉可查看四币完整预测。</div>
+        <section class="winrate-cycle-progress" aria-label="5分钟判断进度">
+          <div class="winrate-progress-head">
+            <div>
+              <span>本轮 5m 判断进度</span>
+              <strong id="winrateProgressText">00:00 / 05:00</strong>
+            </div>
+            <small id="winrateFreshness">正在连接实时数据</small>
+          </div>
+          <div class="winrate-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <i id="winrateProgressFill"></i>
+            <b class="winrate-lock-deadline" title="最迟在 1分48秒形成锁定">最迟锁定 1:48</b>
+          </div>
+          <div id="winrateSymbolProgress" class="winrate-symbol-progress"></div>
+        </section>
+        <div id="winrateSignals" class="interval-signals winrate-symbol-stack"></div>
+        <div id="winrateDbMeta" class="winrate-db-meta"></div>
+      </section>
+    </main>
+    <script src="/winrate.js" type="module"></script>
+  </body>
+</html>

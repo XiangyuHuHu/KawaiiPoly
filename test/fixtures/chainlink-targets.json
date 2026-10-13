@@ -1,0 +1,24 @@
+{
+  "targets": [
+    {
+      "key": "BTC-USD:5m:2026-07-07T09:05:00.000Z",
+      "price": 63105.8,
+      "source": "polymarket_rtds_chainlink_slot_start_cache",
+      "symbol": "BTC-USD",
+      "timeframe": "5m",
+      "slotIso": "2026-07-07T09:05:00.000Z",
+      "capturedAtIso": "2026-07-07T09:05:02.000Z",
+      "captureDelaySeconds": 2
+    },
+    {
+      "key": "BTC-USD:5m:2026-07-07T09:10:00.000Z",
+      "price": 63111.28,
+      "source": "polymarket_rtds_chainlink_slot_start_cache",
+      "symbol": "BTC-USD",
+      "timeframe": "5m",
+      "slotIso": "2026-07-07T09:10:00.000Z",
+      "capturedAtIso": "2026-07-07T09:10:02.000Z",
+      "captureDelaySeconds": 2
+    }
+  ]
+}

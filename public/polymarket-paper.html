@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Polymarket 模拟 · Plan14</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="polymarket-theme">
+    <div class="ambient" aria-hidden="true">
+      <span class="coin coin-btc">PM</span>
+      <span class="coin coin-eth">UP</span>
+      <span class="coin coin-sol">DN</span>
+      <span class="orbit orbit-a"></span>
+      <span class="orbit orbit-b"></span>
+    </div>
+    <main class="shell">
+      <nav class="top-nav">
+        <a href="http://127.0.0.1:3000/robinhood.html">加密量化台</a>
+        <a href="http://127.0.0.1:3000/ibkr.html">IBKR 股票量化台</a>
+        <a href="/polymarket.html">Polymarket 实盘</a>
+        <a href="/polymarket-paper.html" class="active">Polymarket 模拟</a>
+        <a href="/polymarket-markets.html">市场扩展</a>
+        <a href="/polymarket-analytics.html">数据分析</a>
+        <a href="/winrate.html">胜率计算</a>
+      </nav>
+
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Polymarket CLOB</p>
+          <h1>模拟盘</h1>
+          <p class="subhead">Plan17 用期权隐含波动率给 BTC/ETH 价格档位盘定价，是当前唯一在开新仓的策略。Plan14 和 Plan16 回测扣费后无优势，已停新仓，旧单照常结算。Plan15 买事件盘领先结果。全部只做模拟，实盘不开放。</p>
+          <div class="mode-actions">
+            <a class="primary-button" href="/polymarket.html">进入实盘页</a>
+          </div>
+        </div>
+        <div class="status-card">
+          <span class="status-dot"></span>
+          <span id="pmStatus">检查 Polymarket 状态中...</span>
+        </div>
+      </header>
+
+      <section class="panel market-panel paper-summary-panel pm-dual-compare">
+        <div class="panel-head compact">
+          <div>
+            <span class="section-kicker">Paper</span>
+            <h2>模拟账户</h2>
+          </div>
+          <div class="head-actions">
+            <button id="pmRefreshAll" class="primary-button" type="button">刷新全部</button>
+          </div>
+        </div>
+        <section class="summary-strip embedded-summary pm-compare-strip">
+          <div><span>Plan14 净值</span><strong id="pmPlan14Equity">--</strong></div>
+          <div><span>Plan14 收益</span><strong id="pmPlan14Return">--</strong></div>
+          <div><span>Plan14 自动</span><strong id="pmPlan14Auto">--</strong></div>
+          <div><span>v11 新入场订单净收益</span><strong id="pmPlan14VersionPnl">--</strong></div>
+          <div><span>Plan15 净值</span><strong id="pmPlan15Equity">--</strong></div>
+          <div><span>Plan15 收益</span><strong id="pmPlan15Return">--</strong></div>
+          <div><span>Plan16 净值</span><strong id="pmPlan16Equity">--</strong></div>
+          <div><span>Plan16 收益</span><strong id="pmPlan16Return">--</strong></div>
+          <div><span>Plan17 净值</span><strong id="pmPlan17Equity">--</strong></div>
+          <div><span>Plan17 收益</span><strong id="pmPlan17Return">--</strong></div>
+          <div><span>Plan18 净值</span><strong id="pmPlan18Equity">--</strong></div>
+          <div><span>Plan18 收益</span><strong id="pmPlan18Return">--</strong></div>
+          <div><span>Plan19 净值</span><strong id="pmPlan19Equity">--</strong></div>
+          <div><span>Plan19 收益</span><strong id="pmPlan19Return">--</strong></div>
+        </section>
+      </section>
+
+      <section class="pm-plan-detail-section">
+        <div class="pm-plan-switcher" role="tablist" aria-label="选择策略">
+          <button type="button" class="pm-tab active" data-plan-tab="plan14" role="tab" aria-selected="true">Plan14 公允概率</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan15" role="tab" aria-selected="false">Plan15 事件盘</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan16" role="tab" aria-selected="false">Plan16 天气预报</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan17" role="tab" aria-selected="false">Plan17 价格档位</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan18" role="tab" aria-selected="false">Plan18 梅花易数</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan19" role="tab" aria-selected="false">Plan19 小六壬</button>
+        </div>
+        <p class="pm-plan-switcher-hint" data-role="plan-switcher-hint"></p>
+      <section class="pm-dual-grid pm-dual-grid-tabs">
+        <div class="pm-dual-column is-active" data-plan="plan14">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan14</span>
+                <h2>市场锚定现货公允概率 · 实时盘口确认</h2>
+                <p class="pm-plan-scope-note">v11 · 四币 5m · 估值权重不变 · 不再新开 40¢ 以下的仓。已经持有的 v9 低价仓仍拿到官方结算。其他价位保留原退出。仅模拟。</p>
+                <p class="pm-plan-scope-note" id="pmPlan14ExitControl">旧版退出同单对照：等待新样本</p>
+                <p class="pm-plan-scope-note" id="pmPlan14ProfitExperiment">盈利优化实验：v9 入场 / v10 双边估值候选，各自 $500 本金、每笔 $10，均持有到官方结算；不混入主仓收益。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>5m 成交</span><strong data-field="order5m">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <form class="polymarket-form pm-portfolio-form">
+              <label>
+                初始本金 (USD)
+                <input name="cash" type="number" min="1" step="1" value="500" />
+              </label>
+              <div class="paper-controls">
+                <button class="primary-button" type="submit">保存本金</button>
+                <button type="button" data-action="reset-portfolio">重置账户</button>
+              </div>
+            </form>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">点击启动四币 5m 自动模拟</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+              <button type="button" data-action="reset-orders">清空订单</button>
+            </div>
+            <div class="pm-plan-tabs pm-symbol-tabs" role="group" aria-label="Plan14 币种">
+              <button class="pm-tab active" data-symbol="BTC-USD" type="button">BTC</button>
+              <button class="pm-tab" data-symbol="ETH-USD" type="button">ETH</button>
+              <button class="pm-tab" data-symbol="SOL-USD" type="button">SOL</button>
+              <button class="pm-tab" data-symbol="XRP-USD" type="button">XRP</button>
+            </div>
+            <div class="pm-plan-tabs pm-timeframe-tabs">
+              <button class="pm-tab active" data-timeframe="5m" type="button">5m</button>
+              <button class="pm-tab" data-timeframe="15m" type="button">15m（暂停开仓）</button>
+            </div>
+            <div class="pm-recommendation" data-role="recommendation">
+              <div class="accuracy-empty">等待首次计划。</div>
+            </div>
+            <div class="paper-controls">
+              <button type="button" data-action="execute-plan">执行当前计划</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan15">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan15</span>
+                <h2>市场扩展事件 · 持有到官方结果</h2>
+                <p class="pm-plan-scope-note">体育、电竞、天气、政治、宏观、加密事件。领先结果 40–70¢，价差不超过 5¢，24 小时成交额至少 $1000，2 天内结算。每市场一笔 $5，现金够就按类别买完，不限 12 笔。和 Plan14 分开记账。永续与 5 分钟涨跌不买。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">约每分钟扫一次事件盘</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan16">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan16</span>
+                <h2>机场温度 · 集合预报</h2>
+                <p class="pm-plan-scope-note">只买最高温或最低温。概率来自 Open-Meteo 集合预报落在结算区间的比例，不是盘口自己的价格。扣费后还要比卖一高出 8¢，同一城市同一天只买一笔，本地下午之后不再买当天最高温。每笔 $5，持有到官方结果。和 Plan14、Plan15 分开记账。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">约每分钟对照天气预报</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan17">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan17</span>
+                <h2>BTC/ETH 价格档位 · 期权隐含波动率</h2>
+                <p class="pm-plan-scope-note">主做“今天会不会碰到某价位”的碰线日盘，“收盘高于某价”作对照。概率用 Deribit DVOL 隐含波动率和 Binance 现货价算，与结算用的同一组 1 分钟 K 线。按真实卖一加手续费，扣费后高出 10¢ 才买，同一事件最多 4 笔，已碰过的价位不买。仓位用半凯利：下注比例 = 0.5 × (模型概率 − 扣费成本) / (1 − 扣费成本)，单笔最多净值的 8%，一轮合计最多 25%。50¢ 的盘正好是 f = 赢的概率 − 输的概率。持有到官方结果。60 天回测里只有碰线日盘前后两段都赚钱。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">约每 2 分钟对照期权波动率</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan18">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan18</span>
+                <h2>算卦对照 · 梅花易数时间起卦</h2>
+                <p class="pm-plan-scope-note">BTC/ETH/SOL/XRP 的 5 分钟、15 分钟、1 小时涨跌盘，按每根 K 线开盘时刻（北京时间）起卦：整点用年月日时，5m/15m 再加分钟。体用比和、用生体、体克用为吉，买涨；体生用、用克体为凶，买跌。同时记录小六壬。开盘后 5m 盘 1 分钟、15m 盘 3 分钟、小时盘 10 分钟内按卖一买入，5m/15m 每笔 $1、小时盘每笔 $5，持有到官方结算。这是随机对照组：60 天回测胜率 51.2%、扣费后 −3.4%，与抛硬币无差别。Plan17 要明显好过它才算有效。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">每根 5m/15m/1h K 线开盘时起卦</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan19">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan19</span>
+                <h2>算卦对照 · 小六壬</h2>
+                <p class="pm-plan-scope-note">与 Plan18 完全相同的盘口、起卦时刻、入场窗口和金额，只把判法换成小六壬：从大安起正月，顺数月、日、时辰（5m/15m 再加分钟），落在大安、速喜、小吉为吉买涨，留连、赤口、空亡为凶买跌。同时记录梅花卦象。两组同时跑，可以直接比较两种卦法；按回测两者都应落在扣费后 −3% 附近。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">每根 5m/15m/1h K 线开盘时起卦</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+      </section>
+      </section>
+    </main>
+    <script src="/polymarket-paper.js" type="module"></script>
+  </body>
+</html>
