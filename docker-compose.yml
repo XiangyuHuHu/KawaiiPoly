@@ -50,7 +50,7 @@ services:
       HOURLY_MONITOR_INTERVAL_MS: 3600000
       POLYMARKET_ENABLED: "true"
       # Paper-only research phase: this global kill switch prevents every core live order path.
-      POLYMARKET_LIVE_TRADING_ENABLED: "true"
+      POLYMARKET_LIVE_TRADING_ENABLED: ${POLYMARKET_LIVE_TRADING_ENABLED:-false}
       # Paper decisions must use the exact production judgment and entry constraints.
       POLYMARKET_PAPER_LIVE_PARITY_ENABLED: "true"
       POLYMARKET_BLEND_ENABLED: "true"
