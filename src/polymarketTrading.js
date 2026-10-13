@@ -4065,6 +4065,7 @@ export class PolymarketTradingService {
         : planId === PLAN14_ID ? this.computeStrategyVersionStats(planId, PLAN14_VERSION) : undefined,
       previousVersionStats: planId === PLAN14_ID ? this.computeStrategyVersionStats(planId, PLAN14_V8_VERSION) : undefined,
       exitControlComparison: planId === PLAN14_ID ? summarizePlan14ExitControl(bucket.paperOrders) : undefined,
+      profitExperimentAuto: planId === PLAN14_ID ? { enabled: this.plan14ProfitExperimentEnabled() } : undefined,
       profitExperiment: planId === PLAN14_ID ? summarizePlan14ProfitExperiment(bucket.plan14ProfitExperiment) : undefined,
       researchArchiveErrors: planId === PLAN14_ID ? (bucket.plan14ResearchArchiveErrors || 0) : undefined,
       opportunitySummary: planId === 'plan5'
@@ -4494,6 +4495,19 @@ export class PolymarketTradingService {
 
   ensureDailyLossBudget() {
     // 模拟盘不启用日损上限；仅保留 daily 统计供展示。
+  }
+
+  plan14ProfitExperimentEnabled() {
+    const bucket = this.getBucket(PLAN14_ID);
+    bucket.plan14ProfitExperimentAuto ||= { enabled: this.config.plan14ProfitExperimentEnabled ?? Boolean(bucket.auto?.enabled) };
+    return bucket.plan14ProfitExperimentAuto.enabled;
+  }
+
+  async setPlan14ProfitExperimentEnabled(enabled) {
+    const bucket = this.getBucket(PLAN14_ID);
+    bucket.plan14ProfitExperimentAuto = { enabled: Boolean(enabled) };
+    await this.persist(PLAN14_ID);
+    return { ...bucket.plan14ProfitExperimentAuto };
   }
 
   async setAuto(enabled, options = {}) {
@@ -7260,7 +7274,7 @@ export class PolymarketTradingService {
       note: 'Same-quote forecast comparison, not filled orders or equal-capital PnL.' });
     if (rows.length > 4000) bucket.plan14OpportunitiesDropped = (bucket.plan14OpportunitiesDropped || 0) + rows.length - 4000;
     bucket.plan14OpportunityLog = rows.slice(0, 4000);
-    if (this.config.plan14ProfitExperimentEnabled !== false && bucket.auto?.enabled && plan.profitExperiment) {
+    if (this.plan14ProfitExperimentEnabled() && plan.profitExperiment) {
       bucket.plan14ProfitExperiment ||= createPlan14ProfitExperiment(time);
       const events = observePlan14ProfitExperiment(bucket.plan14ProfitExperiment, plan, sentiment, Date.now(), resolvePaperTakerFeeRate(this.config), this.config);
       for (const event of events) await this.archivePlan14Research('experiments', { observedAtIso: new Date().toISOString(), ...event });

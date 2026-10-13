@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildPolymarketPaperPlan14, evaluatePlan14Entry, PLAN14_VERSION, PLAN14_PROFIT_EXPERIMENT_VERSION } from '../src/polymarketPlan14.js';
-import { createPlan14ProfitExperiment, observePlan14ProfitExperiment, resolvePlan14ProfitExperiment,
-  releasePlan14ProfitExperiment, summarizePlan14ProfitExperiment } from '../src/plan14ProfitExperiment.js';
+import { createPlan14ProfitExperiment, observePlan14ProfitExperiment as observeAll, resolvePlan14ProfitExperiment,
+  releasePlan14ProfitExperiment as releaseAll, summarizePlan14ProfitExperiment } from '../src/plan14ProfitExperiment.js';
 import { PolymarketTradingService } from '../src/polymarketTrading.js';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+// Existing policy assertions remain independent of the additional matched controls.
+const observePlan14ProfitExperiment = (...args) => observeAll(...args).filter(e => !e.order.lane.endsWith('Control'));
+const releasePlan14ProfitExperiment = (...args) => releaseAll(...args).filter(e => !e.order.lane.endsWith('Control'));
+const policyLanes = state => Object.entries(state.lanes).filter(([key]) => !key.endsWith('Control')).map(([, lane]) => lane);
 const nowMs = Date.parse('2099-01-10T00:01:00Z'), targetMs = nowMs + 240000;
 const sentiment = { available: true, marketSlug: 'btc-test', upPrice:.5, downPrice:.5, upBestAsk:.51, downBestAsk:.51 };
 const signal = { symbol:'BTC-USD', prediction:{targetTimeIso:new Date(targetMs).toISOString(),comparisonBasePrice:100},
@@ -63,7 +67,7 @@ test('four independent funded lanes debit cash, pay fees, preserve one coin/wind
   const s=createPlan14ProfitExperiment(nowMs),p=plan();
   assert.equal(observePlan14ProfitExperiment(s,p,sentiment,nowMs).length,4);
   assert.equal(observePlan14ProfitExperiment(s,p,sentiment,nowMs).length,0);
-  for(const lane of Object.values(s.lanes)){assert.equal(lane.cash,490);assert.equal(lane.filled,1);assert.equal(lane.invested,10);}
+  for(const lane of policyLanes(s)){assert.equal(lane.cash,490);assert.equal(lane.filled,1);assert.equal(lane.invested,10);}
   const a=s.lanes.baseline.open[0],b=s.lanes.baselineStress.open[0];
   close(a.shares,10/.51*(1-.07*(1-.51)));close(b.ask,.52);assert.ok(b.shares<a.shares);
   const other={...p,symbol:'ETH-USD'};
@@ -108,7 +112,7 @@ test('missing or insufficient depth skips without debit or reserving the window;
   for(const asks of [undefined,[],[{price:.51,size:19}], [{price:.51,size:Infinity}]]){
     const s=createPlan14ProfitExperiment(nowMs),p=plan();p.profitExperiment.asks.up=asks;
     assert.deepEqual(observePlan14ProfitExperiment(s,p,sentiment,nowMs),[]);
-    for(const lane of Object.values(s.lanes)){
+    for(const lane of policyLanes(s)){
       assert.equal(lane.cash,500);assert.equal(lane.invested,0);assert.equal(lane.filled,0);
       assert.equal(lane.skips,1);assert.deepEqual(lane.open,[]);assert.deepEqual(lane.lastFilledTargetMs,{});
     }
@@ -122,7 +126,7 @@ test('invalid latency or penalized prices at one skip experiment fills',()=>{
     const s=createPlan14ProfitExperiment(nowMs);
     assert.deepEqual(observePlan14ProfitExperiment(s,plan(),sentiment,nowMs,.07,
       {plan14ProfitExperimentLatencyPenaltyCents:cents}),[]);
-    assert.ok(Object.values(s.lanes).every(l=>l.cash===500 && l.skips===1));
+    assert.ok(policyLanes(s).every(l=>l.cash===500 && l.skips===1));
   }
 });
 
@@ -175,7 +179,7 @@ test('runtime opportunity integration persists/reloads funded ledgers and append
   try{
     const s=new PolymarketTradingService({config:{plan14Enabled:true,plan14ProfitExperimentEnabled:true,
       plan14ProfitExperimentLatencyPenaltyCents:2},stateDir:folder});
-    const bucket=s.getBucket('plan14');bucket.auto.enabled=true;
+    const bucket=s.getBucket('plan14');bucket.auto.enabled=false;
     const t=Date.now(),n=new Date(t),target=new Date(t+240000).toISOString();
     const freshSignal={...signal,prediction:{...signal.prediction,targetTimeIso:target},
       schedule:{...signal.schedule,currentSlotIso:new Date(t-60000).toISOString(),nextSlotIso:target},
@@ -189,7 +193,7 @@ test('runtime opportunity integration persists/reloads funded ledgers and append
     assert.equal(bucket.portfolio.cash,mainCash);assert.equal(bucket.paperOrders.length,0);
     const file=join(folder,'plan14-research',`${n.toISOString().slice(0,10)}-experiments.jsonl`);
     const events=(await readFile(file,'utf8')).trim().split('\n').map(JSON.parse);
-    assert.equal(events.length,4);assert.ok(events.every(e=>e.type==='entry'));
+    assert.equal(events.length,8);assert.ok(events.every(e=>e.type==='entry'));
     assert.ok(events.every(e=>e.order.latencyPenalty===.02 && e.order.depthUsed.length===1));
     close(events.find(e=>e.order.lane==='baseline').order.avgFillPrice,.53);
     const reloaded=new PolymarketTradingService({config:{plan14Enabled:true,plan14ProfitExperimentEnabled:true},stateDir:folder});
@@ -198,4 +202,73 @@ test('runtime opportunity integration persists/reloads funded ledgers and append
   }finally{
     assert.equal(dirname(resolve(folder)),resolve(tmpdir()));await rm(folder,{recursive:true});
   }
+});
+
+
+test('seeded matched controls choose either real side, settle and retain UTC/event blocks', () => {
+  const state = createPlan14ProfitExperiment(nowMs);
+  const events = observeAll(state, plan(), sentiment, nowMs, .07, {}, () => .99);
+  assert.equal(events.length, 8);
+  const control = state.lanes.baselineControl.open[0];
+  assert.equal(control.direction, 'down');
+  assert.equal(control.marketSlug, state.lanes.baseline.open[0].marketSlug);
+  assert.equal(control.pairedOrderId, state.lanes.baseline.open[0].id);
+  assert.equal(control.priceBand, 5);
+  resolvePlan14ProfitExperiment(state, sentiment.marketSlug, { actualDirection: 'up', priceSource: 'polymarket-official' }, targetMs);
+  assert.equal(releaseAll(state, targetMs + 240000).length, 8);
+  const summary = summarizePlan14ProfitExperiment(JSON.parse(JSON.stringify(state)));
+  assert.equal(summary.byDate['2099-01-10'].baselineControl.realizedPnl, -10);
+  assert.equal(summary.byEvent['btc-test'].baseline.wins, 1);
+  assert.equal(summary.byDate['2099-01-10'].baseline.pending, 0);
+  assert.equal(summary.byEvent['btc-test'].baselineControl.settled, 1);
+  const another = createPlan14ProfitExperiment(nowMs);
+  observeAll(another, plan(), sentiment, nowMs, .07, {}, () => 0);
+  assert.equal(another.lanes.baselineControl.open[0].direction, 'up');
+});
+
+test('controls stay in the entry price band and skip insufficient real depth', () => {
+  const p = plan(); p.profitExperiment.asks.down = [{price: .8, size: 100}];
+  const state = createPlan14ProfitExperiment(nowMs);
+  observeAll(state, p, sentiment, nowMs, .07, {}, () => .99);
+  assert.equal(state.lanes.baselineControl.open[0].direction, 'up');
+  const q = plan(); q.profitExperiment.asks.up = [{price: .51, size: 4}, {price: .7, size: 100}];
+  q.profitExperiment.asks.down = [{price: .8, size: 100}];
+  const skipped = createPlan14ProfitExperiment(nowMs);
+  observeAll(skipped, q, sentiment, nowMs, .07, {}, () => 0);
+  assert.equal(skipped.lanes.baseline.filled, 1);
+  assert.equal(skipped.lanes.baselineControl.filled, 0);
+  assert.equal(skipped.lanes.baselineControl.cash, 500);
+  assert.equal(skipped.lanes.baselineControl.skips, 1);
+});
+
+test('experiment toggle persists independently from main auto and main entry config', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'plan14-toggle-'));
+  try {
+    const service = new PolymarketTradingService({ config: { plan14Enabled: false, plan14ProfitExperimentEnabled: true }, stateDir: folder });
+    assert.equal(service.getBucket('plan14').auto.enabled, false);
+    assert.equal(service.plan14ProfitExperimentEnabled(), true);
+    await service.setPlan14ProfitExperimentEnabled(false);
+    service.getBucket('plan14').auto.enabled = true;
+    assert.equal(service.plan14ProfitExperimentEnabled(), false);
+    await service.setPlan14ProfitExperimentEnabled(true);
+    service.getBucket('plan14').auto.enabled = false;
+    await service.persist('plan14');
+    const restored = new PolymarketTradingService({ config: { plan14ProfitExperimentEnabled: false }, stateDir: folder });
+    await restored.load();
+    assert.equal(restored.plan14ProfitExperimentEnabled(), true);
+    assert.equal(restored.getBucket('plan14').auto.enabled, false);
+  } finally { await rm(folder, { recursive: true }); }
+});
+
+
+test('legacy ledgers recover available blocks without negative pending counts', () => {
+  const state = createPlan14ProfitExperiment(nowMs);
+  observeAll(state, plan(), sentiment, nowMs, .07, {}, () => 0);
+  delete state.byDate; delete state.byEvent;
+  for (const key of Object.keys(state.lanes)) if (key.endsWith('Control')) delete state.lanes[key];
+  resolvePlan14ProfitExperiment(state, sentiment.marketSlug, { actualDirection: 'up', priceSource: 'polymarket-official' }, targetMs);
+  releaseAll(state, targetMs + 240000);
+  assert.equal(state.byDate['2099-01-10'].baseline.pending, 0);
+  assert.equal(state.byEvent['btc-test'].baseline.settled, 1);
+  assert.ok(summarizePlan14ProfitExperiment(state).blockHistoryNote);
 });

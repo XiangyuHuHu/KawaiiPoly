@@ -908,6 +908,15 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/polymarket/plan14/profit-experiment/auto') {
+    const body = await readJsonBody(request);
+    if (typeof body.enabled !== 'boolean') { sendJson(response, 400, { error: 'enabled must be boolean' }); return; }
+    const auto = await polymarketTrading.setPlan14ProfitExperimentEnabled(body.enabled);
+    sendJson(response, 200, { auto });
+    if (auto.enabled) scheduleIsolatedPaperPlanTick('plan14');
+    return;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/polymarket/auto/start') {
     const body = await readJsonBody(request);
     let planId = normalizePaperPlanId(body.planId || body.plan);
@@ -3792,9 +3801,9 @@ async function runPolymarketAutoTickForPlans(planIds = [], { tickContext = null 
 async function runPolymarketAutoTickForSinglePlan(rawId, { tickContext = null } = {}) {
   const id = normalizePaperPlanId(rawId);
   if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(id)) return [];
-  if (id === 'plan14' && config.polymarket.plan14NewEntriesEnabled !== true) return [];
   const bucket = polymarketTrading.status(id);
-  if (!bucket.auto.enabled) return [];
+  const mainEnabled = bucket.auto.enabled && (id !== 'plan14' || config.polymarket.plan14NewEntriesEnabled === true);
+  if (!mainEnabled && !(id === 'plan14' && polymarketTrading.plan14ProfitExperimentEnabled())) return [];
   // Plan1/Plan5/Plan11 live owns the canonical decision while enabled. The live
   // loop writes the paired paper control from the same plan view, so this
   // independent paper loop must not consume the window first with a separately
@@ -3865,6 +3874,7 @@ async function runPolymarketAutoTickForSinglePlan(rawId, { tickContext = null } 
       throwIfPaperPlanTickCancelled(id, tickContext);
       setPaperPlanTickStage(id, `execute:${timeframe}:${symbol}`, tickContext);
       if (id === 'plan14') await polymarketTrading.recordPlan14Opportunity(view.plan, view.polymarket);
+      if (id === 'plan14' && !mainEnabled) continue;
       const result = await polymarketTrading.maybeAutoExecute({
         plan: view.plan,
         sentiment: view.polymarket,
@@ -5335,7 +5345,8 @@ async function runPolymarketAutoLoop() {
     polymarketPaperCoreRoundRobinIndex % POLYMARKET_PAPER_CORE_PLAN_IDS.length
   ];
   polymarketPaperCoreRoundRobinIndex += 1;
-  if (polymarketTrading.statusForPlan(planId)?.auto?.enabled) {
+  if (polymarketTrading.statusForPlan(planId)?.auto?.enabled
+    || (planId === 'plan14' && polymarketTrading.plan14ProfitExperimentEnabled())) {
     scheduleIsolatedPaperPlanTick(planId);
   }
 }
