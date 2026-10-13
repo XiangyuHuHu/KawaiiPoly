@@ -149,9 +149,11 @@ export class PolymarketClient {
     if (!slug) return null;
     // BTC/ETH updown 短窗：/markets?slug= 常返回 []，官方结果在 /events。
     // Gamma /markets omits closed markets unless closed=true is passed.
+    const failures = [];
+    const recordFailure = (error) => { failures.push(error); return []; };
     const markets = await this.request(
       `${this.gammaBaseUrl}/markets`, { slug }, { cacheTtlMs: 15_000 }
-    ).catch(() => []);
+    ).catch(recordFailure);
     const direct = resolveNamedMarketOutcome(markets, slug);
     if (direct) return direct;
     const [closedMarkets, events] = await Promise.all([
@@ -159,15 +161,18 @@ export class PolymarketClient {
         `${this.gammaBaseUrl}/markets`,
         { slug, closed: 'true' },
         { cacheTtlMs: 15_000 }
-      ).catch(() => []),
+      ).catch(recordFailure),
       this.request(
         `${this.gammaBaseUrl}/events`,
         { slug },
         { cacheTtlMs: 15_000 }
-      ).catch(() => [])
+      ).catch(recordFailure)
     ]);
-    return resolveNamedMarketOutcome(closedMarkets, slug)
+    const outcome = resolveNamedMarketOutcome(closedMarkets, slug)
       || resolveNamedMarketOutcome(events, slug);
+    if (outcome) return outcome;
+    if (failures.length) throw new AggregateError(failures, `Official outcome lookup failed for ${slug}: ${failures.map((error) => error.message || String(error)).join('; ')}`);
+    return null;
   }
 
   async getOrderBook(tokenId) {

@@ -7577,6 +7577,7 @@ export class PolymarketTradingService {
     const nowMs = Date.now();
     const settledOrders = [];
     let settledObservations = 0;
+    let settlementStateChanged = false;
     if (id === 'plan3_6') {
       const observations = Array.isArray(bucket.plan36ObservationLog) ? bucket.plan36ObservationLog : [];
       const due = observations
@@ -7655,12 +7656,21 @@ export class PolymarketTradingService {
     }
     for (const order of bucket.paperOrders) {
       if (order.settlementStatus !== 'open') continue;
-      if (!order.targetTimeIso || Date.parse(order.targetTimeIso) > nowMs - 15_000) continue;
+      const endMs = Date.parse(order.targetTimeIso);
+      if (!Number.isFinite(endMs) || endMs > nowMs) continue;
+      order.firstPastEndAtIso ||= new Date(nowMs).toISOString();
+      order.resolutionWaitMs = nowMs - endMs;
+      settlementStateChanged = true;
+      if (endMs > nowMs - 15_000) continue;
       let outcome;
       try {
         outcome = await resolveOutcome(order);
+        order.lastSettlementError = null;
+        order.settlementError = null;
       } catch (error) {
-        order.settlementError = error.message;
+        order.lastSettlementError = error.message || String(error);
+        order.settlementError = order.lastSettlementError;
+        order.settlementFetchFailures = (Number(order.settlementFetchFailures) || 0) + 1;
         continue;
       }
       if (id === PLAN15_ID || id === PLAN16_ID || id === PLAN17_ID || id === PLAN18_ID || id === PLAN19_ID) {
@@ -7742,7 +7752,7 @@ export class PolymarketTradingService {
       settledOrders.push(order);
       if (id === PLAN14_ID) await this.archivePlan14Settlement(order);
     }
-    if (settledOrders.length || settledObservations) await this.persist(id);
+    if (settledOrders.length || settledObservations || settlementStateChanged) await this.persist(id);
     if (id === PLAN14_ID) await this.settlePlan14ProfitExperiment(resolveOutcome, { nowMs });
     return settledOrders;
   }
