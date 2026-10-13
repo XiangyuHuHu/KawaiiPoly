@@ -4565,10 +4565,21 @@ export class PolymarketTradingService {
     if (this.config.plan15Enabled === false) throw new Error('Plan15 已禁用。');
     this.ensurePortfolioReady(id);
     const ask = Number(input.ask);
-    const usd = round2(Number(input.usd));
+    let usd = round2(Number(input.usd));
     if (!(ask > 0 && ask < 1) || !(usd > 0)) throw new Error('Plan15 报价或金额无效。');
     const bucket = this.getBucket(id);
-    if (bucket.portfolio.cash + 0.005 < usd) throw new Error('Plan15 现金不足。');
+    const bankroll = Number(bucket.portfolio.startingCash);
+    const safePct = (value, fallback) => {
+      const pct = Number(value ?? fallback);
+      return Number.isFinite(pct) && pct >= 0 && pct <= 1 ? pct : fallback;
+    };
+    const tradeCap = bankroll * safePct(this.config.plan15MaxTradeBankrollPct, 0.05);
+    const exposureCap = bankroll * safePct(this.config.plan15MaxOpenExposureBankrollPct, 0.30);
+    const exposure = bucket.paperOrders
+      .filter((order) => order.settlementStatus === 'open')
+      .reduce((sum, order) => sum + Math.max(0, Number(order.usd) || 0), 0);
+    usd = Math.floor(Math.min(usd, tradeCap, exposureCap - exposure, Number(bucket.portfolio.cash)) * 100 + 1e-8) / 100;
+    if (!(usd > 0)) throw new Error('Plan15 现金不足或敞口上限已满。');
     const slug = String(input.marketSlug || '');
     if (!slug) throw new Error('Plan15 缺少市场。');
     if (bucket.paperOrders.some((order) => order.marketSlug === slug)) return null;

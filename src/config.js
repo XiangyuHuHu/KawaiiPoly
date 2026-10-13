@@ -917,6 +917,8 @@ function buildPolymarketConfig() {
     plan15MaxDays: Number(process.env.POLYMARKET_PLAN15_MAX_DAYS || 2),
     plan15MinVolume24hr: Number(process.env.POLYMARKET_PLAN15_MIN_VOLUME_24HR || 1000),
     plan15OrderUsd: Number(process.env.POLYMARKET_PLAN15_ORDER_USD || 5),
+    plan15MaxTradeBankrollPct: Number(process.env.POLYMARKET_PLAN15_MAX_TRADE_BANKROLL_PCT ?? 0.05),
+    plan15MaxOpenExposureBankrollPct: Number(process.env.POLYMARKET_PLAN15_MAX_OPEN_EXPOSURE_BANKROLL_PCT ?? 0.30),
     // 0 = 不设笔数上限，现金用完即停。模拟盘要留够各类样本，不把仓位卡在 12。
     plan15MaxOpen: process.env.POLYMARKET_PLAN15_MAX_OPEN != null
       && process.env.POLYMARKET_PLAN15_MAX_OPEN !== ''
