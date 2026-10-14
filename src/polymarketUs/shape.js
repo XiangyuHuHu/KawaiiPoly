@@ -8,6 +8,7 @@ const SECTOR_ALIASES = new Map([
   ['mom', 'momentum'],
   ['btc_momentum', 'momentum'],
   ['btc_misprice', 'btc_misprice'],
+  ['btc-misprice', 'btc_misprice'],
   ['btc15', 'btc_misprice'],
   ['btc_15m', 'btc_misprice'],
   ['btc-15m', 'btc_misprice'],

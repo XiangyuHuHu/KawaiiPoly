@@ -111,7 +111,10 @@ function divinationPlanConfig(planId, envPrefix) {
 
 function buildPolymarketConfig() {
   return {
-    enabled: process.env.POLYMARKET_ENABLED !== 'false',
+    line: 'intl-paper',
+    intlPaperEnabled: process.env.POLYMARKET_INTL_PAPER_ENABLED !== 'false',
+    enabled: process.env.POLYMARKET_ENABLED !== 'false'
+      && process.env.POLYMARKET_INTL_PAPER_ENABLED !== 'false',
     blendEnabled: process.env.POLYMARKET_BLEND_ENABLED !== 'false',
     liveTradingEnabled: process.env.POLYMARKET_LIVE_TRADING_ENABLED === 'true',
     // When enabled, paper plans use production judgment/entry rules. Only the
@@ -1487,6 +1490,18 @@ function buildPolymarketConfig() {
   };
 }
 
+function buildAppPolymarketUsConfig() {
+  const trading = buildPolymarketUsConfig();
+  return {
+    ...trading,
+    enabled: process.env.POLYMARKET_US_ENABLED === 'true',
+    siteBaseUrl: process.env.POLYMARKET_US_SITE_BASE || 'https://polymarket.us',
+    scannerPlacesOrders: false,
+    perTradeConfirm: false,
+    standingAutoOrder: true
+  };
+}
+
 export function getConfig() {
   const port = Number(process.env.PORT || 3000);
   const apiKey = process.env.ROBINHOOD_API_KEY || '';
@@ -1516,7 +1531,7 @@ export function getConfig() {
       path: process.env.STATS_DB_PATH || 'data/polymarket-stats.db'
     },
     polymarket: buildPolymarketConfig(),
-    polymarketUs: buildPolymarketUsConfig(),
+    polymarketUs: buildAppPolymarketUsConfig(),
     market: {
       source: (process.env.MARKET_DATA_SOURCE || 'binance').toLowerCase(),
       klineInterval: process.env.MARKET_KLINE_INTERVAL || '1h',
