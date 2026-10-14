@@ -3,6 +3,9 @@ import {
   buildHourlyUpDownSlugCandidates,
   getEtDateParts
 } from './polymarketSchedule.js';
+import { assertIntlLineUrl } from './polymarketVenue.js';
+
+// 国际盘 Gamma/CLOB。polymarket.us 行情与下单在 src/polymarketUs，不走这里。
 
 const DEFAULT_GAMMA_BASE = 'https://gamma-api.polymarket.com';
 const DEFAULT_CLOB_BASE = 'https://clob.polymarket.com';
@@ -20,6 +23,10 @@ export class PolymarketClient {
     this.gammaBaseUrl = gammaBaseUrl.replace(/\/$/, '');
     this.clobBaseUrl = clobBaseUrl.replace(/\/$/, '');
     this.dataBaseUrl = dataBaseUrl.replace(/\/$/, '');
+    this.line = 'polymarket_intl';
+    assertIntlLineUrl(this.gammaBaseUrl, '国际盘 Gamma');
+    assertIntlLineUrl(this.clobBaseUrl, '国际盘 CLOB');
+    assertIntlLineUrl(this.dataBaseUrl, '国际盘 Data API');
     this.requestTimeoutMs = requestTimeoutMs;
     this.responseCache = new Map();
     this.inflightRequests = new Map();

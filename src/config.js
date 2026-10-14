@@ -1,4 +1,5 @@
 ﻿import 'dotenv/config';
+import { buildPolymarketUsConfig } from './polymarketUs/config.js';
 
 function parseHoldingsUsd(value) {
   if (!value) return {};
@@ -1489,17 +1490,15 @@ function buildPolymarketConfig() {
   };
 }
 
-function buildPolymarketUsConfig() {
+function buildAppPolymarketUsConfig() {
+  const trading = buildPolymarketUsConfig();
   return {
-    line: 'us',
+    ...trading,
     enabled: process.env.POLYMARKET_US_ENABLED === 'true',
     siteBaseUrl: process.env.POLYMARKET_US_SITE_BASE || 'https://polymarket.us',
-    gatewayBaseUrl: process.env.POLYMARKET_US_GATEWAY_BASE || 'https://gateway.polymarket.us/v1',
-    ledgerDir: process.env.POLYMARKET_US_LEDGER_DIR || '/workspace/polymarket-ledger',
     scannerPlacesOrders: false,
     perTradeConfirm: false,
-    standingAutoOrder: true,
-    specVersion: '3.2'
+    standingAutoOrder: true
   };
 }
 
@@ -1532,7 +1531,7 @@ export function getConfig() {
       path: process.env.STATS_DB_PATH || 'data/polymarket-stats.db'
     },
     polymarket: buildPolymarketConfig(),
-    polymarketUs: buildPolymarketUsConfig(),
+    polymarketUs: buildAppPolymarketUsConfig(),
     market: {
       source: (process.env.MARKET_DATA_SOURCE || 'binance').toLowerCase(),
       klineInterval: process.env.MARKET_KLINE_INTERVAL || '1h',

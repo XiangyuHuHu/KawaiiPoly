@@ -1,14 +1,20 @@
-import { isIntlHost, US_GATEWAY_ORIGIN } from './rules.js';
+import { US_GATEWAY_BASE, US_MARKET_PATHS } from './constants.js';
+import { usRequest } from './http.js';
+import { isIntlHost } from './rules.js';
+import { readNumber, tradingSlug } from './shape.js';
 
-function quoteValue(node) {
+function amount(node) {
   if (node == null || node === '') return null;
-  if (typeof node === 'number') return Number.isFinite(node) ? node : null;
-  if (typeof node === 'string') {
-    const value = Number(node);
-    return Number.isFinite(value) ? value : null;
+  if (typeof node === 'number' || typeof node === 'string') return readNumber(node);
+  return readNumber(node.value, node.px, node.price);
+}
+
+function unwrapRecord(payload, keys) {
+  if (!payload || typeof payload !== 'object') return {};
+  for (const key of keys) {
+    if (payload[key] && typeof payload[key] === 'object' && !Array.isArray(payload[key])) return payload[key];
   }
-  if (typeof node === 'object') return quoteValue(node.value);
-  return null;
+  return payload;
 }
 
 export function eventSlug(slug) {
@@ -21,39 +27,93 @@ export function eventUrl(slug, origin = 'https://polymarket.us') {
   return `${origin.replace(/\/$/, '')}/event/${display}`;
 }
 
-export function normalizeBbo(payload) {
-  const data = payload?.marketData || payload || {};
+export function normalizeUsBbo(payload, observedAt = new Date().toISOString()) {
+  const row = unwrapRecord(payload, ['marketData', 'bbo', 'data']);
+  const bestBid = amount(row.bestBid ?? row.bid);
+  const bestAsk = amount(row.bestAsk ?? row.ask);
+  const longQuote = amount(row.longQuote);
+  const shortQuote = amount(row.shortQuote);
+  const askShares = readNumber(row.askShares, row.askDepth);
+  const bidShares = readNumber(row.bidShares, row.bidDepth);
+  const sampledAt = row.lastPriceSample?.ts || null;
   return {
-    slug: data.marketSlug || null,
-    bestBid: quoteValue(data.bestBid),
-    bestAsk: quoteValue(data.bestAsk),
-    longAsk: quoteValue(data.longQuote) ?? quoteValue(data.bestAsk),
-    shortAsk: quoteValue(data.shortQuote),
-    bidShares: quoteValue(data.bidShares),
-    askShares: quoteValue(data.askShares),
-    sampledAt: data.lastPriceSample?.ts || null,
-    state: data.state || null
+    slug: row.marketSlug || null,
+    bestBid,
+    bestAsk,
+    longQuote,
+    shortQuote,
+    longAsk: longQuote ?? bestAsk,
+    shortAsk: shortQuote,
+    yesAsk: bestAsk ?? longQuote,
+    noAsk: shortQuote ?? (bestBid == null ? null : Math.round((1 - bestBid) * 10000) / 10000),
+    spread: bestBid != null && bestAsk != null ? Math.round((bestAsk - bestBid) * 10000) / 10000 : null,
+    askShares,
+    bidShares,
+    state: row.state || null,
+    observedAt: sampledAt || observedAt,
+    sampledAt,
+    raw: payload
   };
 }
 
-export function normalizeBook(payload) {
-  const data = payload?.marketData || payload || {};
-  const levels = (rows) => (Array.isArray(rows) ? rows : [])
-    .map((level) => ({
-      price: quoteValue(level?.px ?? level?.price),
-      size: quoteValue(level?.qty ?? level?.size)
-    }))
-    .filter((level) => Number.isFinite(level.price) && level.price > 0 && Number.isFinite(level.size) && level.size > 0);
-  const bids = levels(data.bids).sort((left, right) => right.price - left.price);
-  const asks = levels(data.offers || data.asks).sort((left, right) => left.price - right.price);
+/** Scan pipeline name for the same BBO shape. */
+export function normalizeBbo(payload) {
+  return normalizeUsBbo(payload);
+}
+
+export function quoteForSide(bbo, side) {
+  if (!bbo) return null;
+  if (side === 'no') return bbo.noAsk ?? null;
+  return bbo.yesAsk ?? bbo.bestAsk ?? null;
+}
+
+function level(row) {
+  const price = amount(row?.px ?? row?.price);
+  const shares = readNumber(row?.qty, row?.quantity, row?.size);
+  return { price, shares, size: shares };
+}
+
+export function normalizeUsBook(payload) {
+  const row = unwrapRecord(payload, ['marketData', 'book', 'data']);
+  const bids = (row.bids || []).map(level).filter((item) => item.price != null && item.price > 0 && item.shares > 0)
+    .sort((left, right) => right.price - left.price);
+  const asks = (row.offers || row.asks || []).map(level).filter((item) => item.price != null && item.price > 0 && item.shares > 0)
+    .sort((left, right) => left.price - right.price);
   return {
-    slug: data.marketSlug || null,
+    slug: row.marketSlug || null,
     bids,
     asks,
     bestBid: bids[0]?.price ?? null,
     bestAsk: asks[0]?.price ?? null,
     bestAskSize: asks[0]?.size ?? null,
-    state: data.state || null
+    state: row.state || null,
+    stats: row.stats || null
+  };
+}
+
+export function normalizeBook(payload) {
+  return normalizeUsBook(payload);
+}
+
+function marketRows(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.markets)) return payload.markets;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
+}
+
+export function normalizeUsMarket(row) {
+  if (!row || typeof row !== 'object') return null;
+  return {
+    ...row,
+    id: row.id ?? null,
+    slug: row.slug || row.marketSlug || null,
+    title: row.title || row.question || row.name || null,
+    eventSlug: row.eventSlug || row.event?.slug || null,
+    closed: row.closed === true,
+    active: row.active !== false,
+    endDate: row.endDate || row.end_date || null,
+    resolutionSource: row.resolutionSource || row.resolution_source || null
   };
 }
 
@@ -63,22 +123,41 @@ function unwrapMarket(payload, slug) {
     return payload.markets.find((market) => !slug || market?.slug === slug) || payload.markets[0] || null;
   }
   if (payload.market && typeof payload.market === 'object') return payload.market;
-  if (payload.slug) return payload;
+  if (payload.slug || payload.marketSlug) return payload;
   return null;
+}
+
+function gatewayOrigin(value) {
+  return String(value || US_GATEWAY_BASE).replace(/\/$/, '').replace(/\/v1$/, '');
 }
 
 export class PolymarketUsGateway {
   constructor({
-    baseUrl = US_GATEWAY_ORIGIN,
+    baseUrl,
+    gatewayBaseUrl = US_GATEWAY_BASE,
     requestTimeoutMs = 12_000,
-    fetchImpl = globalThis.fetch
+    fetchImpl
   } = {}) {
-    if (isIntlHost(baseUrl)) {
+    if (baseUrl && isIntlHost(baseUrl)) {
       throw new Error('US gateway client refuses international Gamma/CLOB hosts');
     }
-    this.baseUrl = String(baseUrl || US_GATEWAY_ORIGIN).replace(/\/$/, '');
+    this.gatewayBaseUrl = gatewayOrigin(baseUrl || gatewayBaseUrl);
+    this.baseUrl = this.gatewayBaseUrl;
     this.requestTimeoutMs = requestTimeoutMs;
     this.fetchImpl = fetchImpl;
+    this.line = 'polymarket_us';
+  }
+
+  request(path, query) {
+    return usRequest({
+      baseUrl: this.gatewayBaseUrl,
+      method: 'GET',
+      path,
+      query,
+      timeoutMs: this.requestTimeoutMs,
+      fetchImpl: this.fetchImpl,
+      label: '美国盘行情'
+    });
   }
 
   async listMarkets({
@@ -86,78 +165,70 @@ export class PolymarketUsGateway {
     endDateMax,
     limit = 100,
     offset = 0,
-    closed = false
+    closed = false,
+    active,
+    slug
   } = {}) {
-    const payload = await this.request('/markets', {
+    const { data } = await this.request(US_MARKET_PATHS.list, {
       endDateMin,
       endDateMax,
       limit,
       offset,
-      closed: closed ? 'true' : 'false'
+      closed: closed === true || closed === 'true' ? 'true' : 'false',
+      active,
+      slug
     });
-    return Array.isArray(payload?.markets) ? payload.markets : [];
+    return marketRows(data).map(normalizeUsMarket).filter(Boolean);
   }
 
   async getMarket(slug) {
     if (!slug) throw new Error('slug is required');
+    const safe = encodeURIComponent(tradingSlug(slug));
     try {
-      const direct = await this.request(`/markets/${encodeURIComponent(slug)}`);
-      const market = unwrapMarket(direct, slug);
-      if (market) return market;
+      const { data } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}`);
+      const market = unwrapMarket(data, slug);
+      if (market?.slug || market?.marketSlug) return normalizeUsMarket(market);
     } catch (error) {
       if (error?.status !== 404) throw error;
     }
-    const listed = await this.request('/markets', { slug, limit: 5, closed: 'false' });
-    const market = unwrapMarket(listed, slug);
-    if (!market) {
-      const missing = new Error(`US market not found: ${slug}`);
-      missing.code = 'NOT_FOUND';
-      missing.status = 404;
-      throw missing;
+    try {
+      const { data } = await this.request(US_MARKET_PATHS.list, { slug, limit: 5, closed: 'false' });
+      const market = unwrapMarket(data, slug);
+      if (market?.slug || market?.marketSlug) return normalizeUsMarket(market);
+    } catch (error) {
+      if (error?.status !== 404) throw error;
     }
-    return market;
+    try {
+      const { data } = await this.request(`${US_MARKET_PATHS.bySlug}/${safe}`);
+      const row = unwrapMarket(data, slug) || data?.market || data;
+      const market = normalizeUsMarket(row);
+      if (market?.slug) return market;
+    } catch (error) {
+      if (error?.status !== 404) throw error;
+    }
+    const missing = new Error(`US market not found: ${slug}`);
+    missing.code = 'NOT_FOUND';
+    missing.status = 404;
+    throw missing;
   }
 
   async getBbo(slug) {
     if (!slug) throw new Error('slug is required');
-    return normalizeBbo(await this.request(`/markets/${encodeURIComponent(slug)}/bbo`));
+    const safe = encodeURIComponent(tradingSlug(slug));
+    const { data } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}/bbo`);
+    return normalizeUsBbo(data);
   }
 
   async getBook(slug) {
     if (!slug) throw new Error('slug is required');
-    return normalizeBook(await this.request(`/markets/${encodeURIComponent(slug)}/book`));
+    const safe = encodeURIComponent(tradingSlug(slug));
+    const { data } = await this.request(`${US_MARKET_PATHS.book}/${safe}/book`);
+    return normalizeUsBook(data);
   }
 
-  async request(path, query = {}) {
-    const params = new URLSearchParams();
-    for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
-    }
-    const target = params.size ? `${this.baseUrl}${path}?${params}` : `${this.baseUrl}${path}`;
-    if (isIntlHost(target)) {
-      throw new Error('US gateway client refuses international Gamma/CLOB hosts');
-    }
-    const response = await this.fetchImpl(target, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(this.requestTimeoutMs)
-    });
-    const text = await response.text();
-    const data = text ? safeJson(text) : null;
-    if (!response.ok) {
-      const error = new Error(typeof data === 'object' && data?.message
-        ? data.message
-        : `US gateway ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
+  async getSettlement(slug) {
+    const safe = encodeURIComponent(tradingSlug(slug));
+    const { data } = await this.request(`${US_MARKET_PATHS.settlement}/${safe}/settlement`);
     return data;
-  }
-}
-
-function safeJson(text) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
   }
 }

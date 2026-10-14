@@ -49,15 +49,18 @@ test('US and international endpoints stay separate', () => {
   const config = getConfig();
   assert.equal(config.polymarket.gammaBaseUrl, 'https://gamma-api.polymarket.com');
   assert.equal(config.polymarket.clobBaseUrl, 'https://clob.polymarket.com');
-  assert.equal(config.polymarketUs.gatewayBaseUrl, 'https://gateway.polymarket.us/v1');
+  assert.match(config.polymarketUs.gatewayBaseUrl, /^https:\/\/gateway\.polymarket\.us/);
+  assert.match(config.polymarketUs.apiBaseUrl, /api\.polymarket\.us/);
   assert.equal(config.polymarketUs.siteBaseUrl, 'https://polymarket.us');
   assert.equal(config.polymarket.line, 'intl-paper');
   assert.equal(config.polymarket.intlPaperEnabled, true);
-  assert.equal(config.polymarketUs.line, 'us');
+  assert.equal(config.polymarketUs.line, 'polymarket_us');
   assert.equal(config.polymarketUs.scannerPlacesOrders, false);
   assert.equal(config.polymarketUs.standingAutoOrder, true);
   assert.equal(config.polymarketUs.perTradeConfirm, false);
-  assert.equal(config.polymarketUs.specVersion, '3.2');
+  assert.equal(config.polymarketUs.dryRun, true);
+  assert.equal(config.polymarketUs.liveTradingEnabled, false);
+  assert.match(String(config.polymarketUs.specVersion), /3\.2/);
   assert.throws(
     () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
     /refuses international/
