@@ -50,15 +50,30 @@ export function sizeForRecord({ wins = 0, losses = 0, lossStreak = 0 } = {}, rul
 }
 
 export function minEdgeFor(sector, { liveKind = null, weak = false } = {}, rules = US_RULES) {
-  if (sector === 'momentum') return null;
-  if (sector === 'live' && liveKind === 'endgame') return null;
-  let edge = sector === 'live'
-    ? rules.edge.liveInGame
-    : sector === 'btc-misprice'
-      ? rules.edge.btcMisprice
-      : rules.edge.nonBtcNonLive;
+  if (sector === 'live' && liveKind === 'endgame') return rules.edge.liveEndgameMinEdge;
+  let edge = rules.edge.minEdge;
   if (weak) edge = round4(edge * rules.edge.weakEdgeMultiplier);
   return edge;
+}
+
+export function intlOnlyReason(input = {}, rules = US_RULES) {
+  const text = [input.title, input.question, input.slug, input.category, input.city]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  const btc = /\bbtc\b|\bbitcoin\b/.test(text);
+  if (!btc && /\bethereum\b|\beth-usd\b|\beth\b/.test(text)) return 'eth';
+  if (/treasury|t-bill|美债/.test(text)) return 'treasury';
+  const city = String(input.city || '').trim();
+  if ((input.sector === 'weather' || input.category === 'weather') && city) {
+    const allowed = rules.weatherCities.some((name) => name.toLowerCase() === city.toLowerCase());
+    if (!allowed) return 'weather-city';
+  }
+  if (/london|tokyo|paris|shanghai|beijing|柏林|东京|伦敦|巴黎/.test(text)
+    && /temp|weather|温度|最高/.test(text)) {
+    return 'weather-city';
+  }
+  return null;
 }
 
 export function btcResolutionRisk(market) {
@@ -100,6 +115,10 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const spreadCents = finite(input.spreadCents) ?? (bid == null ? null : round4((ask - bid) * 100));
   if (spreadCents == null) return reject('missing-spread');
   if (spreadCents - rules.edge.maxSpreadCents > 1e-9) return reject('spread');
+  const liquidityUsd = finite(input.liquidityUsd);
+  if (liquidityUsd == null || liquidityUsd <= rules.edge.minLiquidityUsd) return reject('liquidity');
+  if (intlOnlyReason(input, rules)) return reject('intl-only');
+  if (input.alreadyPicked === true) return reject('already-picked');
   const resolutionRisk = input.resolutionRisk || 'High';
   if (resolutionRisk === 'High') return reject('resolution-risk');
   const rawModel = finite(input.modelProb);
@@ -122,30 +141,19 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     }
   }
 
-  if (sector === 'momentum') {
-    if (ask - rules.edge.momentumPriceCap > 1e-9) return reject('momentum-price-cap');
-    const distance = finite(input.distanceBps);
-    const needed = sizing.weak ? rules.edge.momentumOriginalDistanceBps : rules.edge.momentumDistanceBps;
-    if (distance == null || distance + 1e-9 < needed) return reject('momentum-distance');
-    if (rules.edge.momentumRequiresSameWay && input.sameWay !== true) return reject('momentum-same-way');
-    const mos = round4(modelProb - ask);
-    const mosFloor = sizing.weak ? rules.edge.nonBtcNonLive : 0;
-    if (rules.edge.momentumRequiresMos && !(mos > mosFloor)) return reject('momentum-mos');
-  } else if (sector === 'live' && liveKind === 'endgame') {
+  if (sector === 'momentum' && rules.edge.momentumRequiresSameWay && input.sameWay !== true) {
+    return reject('momentum-same-way');
+  }
+
+  if (sector === 'live' && liveKind === 'endgame') {
     if (modelProb + 1e-12 < rules.edge.liveEndgameMinModel) return reject('live-endgame-model');
     if (ask - rules.edge.liveEndgameMaxPrice > 1e-9) return reject('live-endgame-price');
-  } else if (sector === 'live') {
-    if (ask + 1e-12 < rules.edge.liveInGameMinPrice || ask - rules.edge.liveInGameMaxPrice > 1e-9) {
-      return reject('live-in-game-price');
-    }
-    if (round4(modelProb - ask) + 1e-12 < minEdgeFor(sector, { liveKind, weak: sizing.weak }, rules)) {
-      return reject('edge');
-    }
+    if (round4(modelProb - ask) + 1e-12 < rules.edge.liveEndgameMinEdge) return reject('live-endgame-edge');
   } else {
-    if (ask + 1e-12 < rules.edge.standardMinPrice || ask - rules.edge.standardMaxPrice > 1e-9) {
-      return reject('price-band');
-    }
-    if (round4(modelProb - ask) + 1e-12 < minEdgeFor(sector, { weak: sizing.weak }, rules)) {
+    const minPrice = sector === 'live' ? rules.edge.liveInGameMinPrice : rules.edge.standardMinPrice;
+    const maxPrice = sector === 'live' ? rules.edge.liveInGameMaxPrice : rules.edge.standardMaxPrice;
+    if (ask + 1e-12 < minPrice || ask - maxPrice > 1e-9) return reject('price-band');
+    if (round4(modelProb - ask) + 1e-12 < minEdgeFor(sector, { liveKind, weak: sizing.weak }, rules)) {
       return reject('edge');
     }
   }
@@ -162,9 +170,10 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     if (conflict) return reject('one-sided');
   }
 
-  const cap = rules.dailyCaps[sector];
-  const used = (finite(input.dailyFilled) || 0) + (finite(input.dailyPending) || 0);
-  if (used >= cap) return reject('daily-cap');
+  const sectorUsed = (finite(input.dailyFilled) || 0) + (finite(input.dailyPending) || 0);
+  const accountUsed = finite(input.dailyOrders);
+  const used = accountUsed == null ? sectorUsed : Math.max(sectorUsed, accountUsed);
+  if (used >= rules.orderFlow.dailyMaxOrders || used >= rules.dailyCaps[sector]) return reject('daily-cap');
 
   const cash = finite(input.cashUsd);
   if (cash != null && cash - sizing.usd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
@@ -205,6 +214,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
       mos: round4(modelProb - ask),
       distance_bps: finite(input.distanceBps),
       spread_cents: spreadCents,
+      liquidity_usd: liquidityUsd,
       depth_usd: depthUsd,
       size_tier: sizing.tier,
       cash_reserve_checked: cash != null

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { btcResolutionRisk, evaluateUsSignal, sidePolarity } from './evaluate.js';
+import { eventSlug } from './gateway.js';
 import { US_RULES } from './rules.js';
 import {
   publishUsSignal,
@@ -49,10 +50,11 @@ function lossStreak(rows) {
 
 export async function loadSectorStats(ledgerRoot, sector, now = new Date()) {
   const paths = usPaths(ledgerRoot);
-  const [orders, trials, pending, cashUsd] = await Promise.all([
+  const [orders, trials, pending, picks, cashUsd] = await Promise.all([
     readJsonl(paths.realOrders),
     readJsonl(paths.momentumTrials),
     readJsonl(paths.pending),
+    readJsonl(paths.picks),
     readAccountCash(paths.account)
   ]);
   const ptDate = ptDateKey(now);
@@ -76,8 +78,73 @@ export async function loadSectorStats(ledgerRoot, sector, now = new Date()) {
     dailyPending,
     cashUsd,
     openWindows,
-    ptDate
+    ptDate,
+    dailyOrders: countDayOrders([...orders, ...trials, ...pending], ptDate, now),
+    picks
   };
+}
+
+function rowSlug(row) {
+  if (row?.slug) return String(row.slug);
+  const url = String(row?.url || row?.event_url || '');
+  const match = url.match(/\/event\/([^/?#]+)/);
+  return match ? match[1] : '';
+}
+
+export function isAlreadyPicked(picks, slug, side) {
+  const want = `${eventSlug(slug)}:${sidePolarity(side)}`;
+  return (picks || []).some((row) => `${eventSlug(rowSlug(row))}:${sidePolarity(row?.side)}` === want);
+}
+
+function countsTowardDailyCap(row, ptDate, now) {
+  if (!isUsFill(row) || row.pt_date !== ptDate) return false;
+  if (row.status === 'expired' || row.status === 'skipped') return false;
+  if (row.status === 'pending') {
+    const expires = Date.parse(row.expires_at || '');
+    return !Number.isFinite(expires) || expires > now.getTime();
+  }
+  return row.status === 'filled' || row.won === true || row.won === false;
+}
+
+function countDayOrders(rows, ptDate, now) {
+  const ids = new Set();
+  for (const row of rows) {
+    if (!countsTowardDailyCap(row, ptDate, now)) continue;
+    ids.add(row.id || `${rowSlug(row)}:${sidePolarity(row.side)}`);
+  }
+  return ids.size;
+}
+
+export function displayedLiquidityUsd(book, bbo) {
+  const notional = (levels) => {
+    if (!Array.isArray(levels) || !levels.length) return null;
+    let total = 0;
+    for (const level of levels) {
+      const price = finite(level?.price);
+      const size = finite(level?.size);
+      if (price == null || size == null) continue;
+      total += price * size;
+    }
+    return total;
+  };
+  const bidBook = notional(book?.bids);
+  const askBook = notional(book?.asks);
+  if (bidBook != null || askBook != null) return (bidBook || 0) + (askBook || 0);
+  let total = 0;
+  let any = false;
+  const bidPx = finite(bbo?.bestBid);
+  const askPx = finite(bbo?.bestAsk) ?? finite(bbo?.longAsk);
+  const bidShares = finite(bbo?.bidShares);
+  const askShares = finite(bbo?.askShares);
+  if (bidPx != null && bidShares != null) {
+    total += bidPx * bidShares;
+    any = true;
+  }
+  if (askPx != null && askShares != null) {
+    total += askPx * askShares;
+    any = true;
+  }
+  return any ? total : null;
 }
 
 function isOpenWindow(row, now) {
@@ -113,7 +180,13 @@ export function quoteForSide(bbo, book, side) {
       ? (shortAsk != null && finite(bbo?.bidShares) != null ? shortAsk * bbo.bidShares : null)
       : (ask != null && finite(bbo?.askShares) != null ? ask * bbo.askShares : null));
   const spreadCents = longAsk != null && longBid != null ? round4((longAsk - longBid) * 100) : null;
-  return { ask, bid, depthUsd: finite(depthUsd), spreadCents };
+  return {
+    ask,
+    bid,
+    depthUsd: finite(depthUsd),
+    spreadCents,
+    liquidityUsd: displayedLiquidityUsd(book, bbo)
+  };
 }
 
 export function btcCandidatesFromContext({
@@ -138,15 +211,21 @@ export function btcCandidatesFromContext({
   if (openWindows.some((row) => row.windowId === windowId)) {
     return { signals: [], skipped: ['window-open'] };
   }
+  const picks = mispriceStats?.picks || momentumStats?.picks || [];
+  const dailyOrders = mispriceStats?.dailyOrders ?? momentumStats?.dailyOrders ?? null;
   const shared = {
     now,
     slug,
+    title: market?.title || market?.question || '',
+    question: market?.question || '',
+    category: market?.category || 'crypto',
     windowId,
     expiresAt,
     timeframe,
     resolutionRisk,
     bboSampledAt: bbo?.sampledAt || null,
     distanceBps,
+    dailyOrders,
     confidence: signal?.confidence >= 0.62 ? 'High' : signal?.confidence >= 0.56 ? 'Med' : 'Low'
   };
   const sectorStats = {
@@ -175,7 +254,9 @@ export function btcCandidatesFromContext({
         dailyFilled: stats.dailyFilled,
         dailyPending: stats.dailyPending,
         cashUsd: stats.cashUsd,
-        openWindows
+        openWindows,
+        dailyOrders,
+        alreadyPicked: isAlreadyPicked(picks, slug, side.side)
       };
     };
     evaluated.push({
@@ -207,6 +288,11 @@ export function normalizeModelRow(row = {}) {
     bid: row.bid,
     spreadCents: row.spread_cents ?? row.spreadCents,
     depthUsd: row.depth_usd ?? row.depthUsd,
+    liquidityUsd: row.liquidity_usd ?? row.liquidityUsd,
+    title: row.title,
+    question: row.question,
+    category: row.category,
+    city: row.city,
     resolutionRisk: row.resolution_risk ?? row.resolutionRisk,
     confidence: row.confidence,
     basis: row.basis,
@@ -323,8 +409,10 @@ export async function runUsScan({
         record: stats.record,
         dailyFilled: stats.dailyFilled,
         dailyPending: stats.dailyPending,
+        dailyOrders: stats.dailyOrders,
         cashUsd: stats.cashUsd,
         openWindows: stats.openWindows,
+        alreadyPicked: isAlreadyPicked(stats.picks, model.slug, model.side),
         basis: forumBasis(model, freshForum)
       });
       if (!decision.ok) {

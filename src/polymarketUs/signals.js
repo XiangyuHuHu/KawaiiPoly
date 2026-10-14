@@ -22,6 +22,7 @@ export function usPaths(ledgerRoot = defaultLedgerRoot(), workspaceRoot = defaul
     candidates: join(ledgerRoot, 'candidates.jsonl'),
     emitted: join(ledgerRoot, 'status', 'emitted-ids.json'),
     status: join(ledgerRoot, 'status'),
+    picks: join(ledgerRoot, 'picks.jsonl'),
     realOrders: join(ledgerRoot, 'real-orders.jsonl'),
     momentumTrials: join(ledgerRoot, 'momentum-trial.jsonl'),
     account: join(ledgerRoot, 'account.json'),
@@ -101,7 +102,7 @@ export function toCandidateRow(signal, scannedAt) {
     model_prob: signal.model_prob,
     edge,
     confidence: Math.abs(edge) >= 0.08 ? 'High' : 'Med',
-    liquidity_usd: signal.gates?.depth_usd ?? null,
+    liquidity_usd: signal.gates?.liquidity_usd ?? signal.gates?.depth_usd ?? null,
     spread_cents: signal.gates?.spread_cents ?? null,
     expires_in: signal.expires_at,
     resolution_source: signal.sector === 'btc-misprice' || signal.sector === 'momentum'

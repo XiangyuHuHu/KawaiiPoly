@@ -1,48 +1,46 @@
 /**
- * Polymarket US scan rules. SCAN_SPEC v3.2 (2026-10-15) supersedes the
- * v3/v3.1 "wait for a chat confirmation" and "2–3 orders a day" clauses.
+ * Polymarket US scan rules from SCAN_SPEC v3 / v3.1.
  * Scanners write SIGNAL files. They never place orders.
+ * A human must confirm in chat before the bot sends a limit order.
  */
 
-export const US_SPEC_VERSION = '3.2';
+export const US_SPEC_VERSION = '3.1';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
 export const US_GATEWAY_ORIGIN = 'https://gateway.polymarket.us/v1';
 
 export const INTL_HOSTS = ['gamma-api.polymarket.com', 'clob.polymarket.com'];
 
-/** Plan2 15m sustained-momentum minimum distance. US momentum uses half. */
-export const BTC15_MOMENTUM_ORIGINAL_DISTANCE_BPS = 8;
-
 export const US_RULES = Object.freeze({
   specVersion: US_SPEC_VERSION,
   venue: 'polymarket.us',
+  account: 'polymarket.us',
   scannerPlacesOrders: false,
   standingAutoOrder: Object.freeze({
-    authorized: true,
-    perTradeConfirm: false,
+    authorized: false,
+    perTradeConfirm: true,
     minUsd: 2,
     maxUsd: 5,
+    dailyMaxOrders: 3,
     executor: 'grok-bot-browser',
-    note: '站立授权：合格 SIGNAL 由 Grok Bot 在 polymarket.us 浏览器下限价单，无需逐笔确认。扫描器只写 SIGNAL，不下单。无 SIGNAL 则静默。成交后用中文播报市场、方向、价格、金额、理由、事件链接和截图。'
+    note: '扫描器不下单。建议 $2–5 限价单。只有用户在对话里明确确认后，bot 才在 polymarket.us 下单，每天最多 3 笔。无 SIGNAL 则静默。'
   }),
   edge: Object.freeze({
-    nonBtcNonLive: 0.03,
-    btcMisprice: 0.05,
+    minEdge: 0.10,
+    nonBtcNonLive: 0.10,
+    btcMisprice: 0.10,
     btcMispriceRequiresFreshBbo: true,
     bboMaxAgeMs: 15_000,
-    momentumDistanceBps: BTC15_MOMENTUM_ORIGINAL_DISTANCE_BPS / 2,
-    momentumOriginalDistanceBps: BTC15_MOMENTUM_ORIGINAL_DISTANCE_BPS,
-    momentumPriceCap: 0.88,
     momentumRequiresSameWay: true,
-    momentumRequiresMos: true,
-    liveInGame: 0.04,
+    liveInGame: 0.10,
     liveInGameMinPrice: 0.15,
-    liveInGameMaxPrice: 0.95,
-    liveEndgameMinModel: 0.88,
+    liveInGameMaxPrice: 0.85,
+    liveEndgameMinModel: 0.93,
+    liveEndgameMinEdge: 0.04,
     liveEndgameMaxPrice: 0.95,
     standardMinPrice: 0.15,
     standardMaxPrice: 0.85,
+    minLiquidityUsd: 2000,
     maxSpreadCents: 3,
     modelProbCap: 0.90,
     weakEdgeMultiplier: 1.5
@@ -60,14 +58,20 @@ export const US_RULES = Object.freeze({
     cashReserveUsd: 15
   }),
   dailyCaps: Object.freeze({
-    live: 10,
-    momentum: 15,
-    'btc-misprice': 8,
-    pregame: 6,
-    weather: 4,
+    live: 3,
+    momentum: 3,
+    'btc-misprice': 3,
+    pregame: 3,
+    weather: 3,
     macro: 3,
-    crypto: 4,
-    master: 4
+    crypto: 3,
+    master: 3
+  }),
+  orderFlow: Object.freeze({
+    perTradeConfirm: true,
+    suggestedMinUsd: 2,
+    suggestedMaxUsd: 5,
+    dailyMaxOrders: 3
   }),
   oneSided: Object.freeze({
     appliesTo: ['btc-misprice', 'momentum'],

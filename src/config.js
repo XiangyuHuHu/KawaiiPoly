@@ -110,7 +110,10 @@ function divinationPlanConfig(planId, envPrefix) {
 
 function buildPolymarketConfig() {
   return {
-    enabled: process.env.POLYMARKET_ENABLED !== 'false',
+    line: 'intl-paper',
+    intlPaperEnabled: process.env.POLYMARKET_INTL_PAPER_ENABLED !== 'false',
+    enabled: process.env.POLYMARKET_ENABLED !== 'false'
+      && process.env.POLYMARKET_INTL_PAPER_ENABLED !== 'false',
     blendEnabled: process.env.POLYMARKET_BLEND_ENABLED !== 'false',
     liveTradingEnabled: process.env.POLYMARKET_LIVE_TRADING_ENABLED === 'true',
     // When enabled, paper plans use production judgment/entry rules. Only the
@@ -1488,13 +1491,16 @@ function buildPolymarketConfig() {
 
 function buildPolymarketUsConfig() {
   return {
+    line: 'us',
     enabled: process.env.POLYMARKET_US_ENABLED === 'true',
     siteBaseUrl: process.env.POLYMARKET_US_SITE_BASE || 'https://polymarket.us',
     gatewayBaseUrl: process.env.POLYMARKET_US_GATEWAY_BASE || 'https://gateway.polymarket.us/v1',
     ledgerDir: process.env.POLYMARKET_US_LEDGER_DIR || '/workspace/polymarket-ledger',
     scannerPlacesOrders: false,
-    standingAutoOrder: true,
-    specVersion: '3.2'
+    perTradeConfirm: true,
+    dailyMaxOrders: 3,
+    standingAutoOrder: false,
+    specVersion: '3.1'
   };
 }
 
