@@ -9,6 +9,12 @@ _split-server.mjs
 *.p12
 *.pfx
 data/
+/polymarket-ledger/**
+!/polymarket-ledger/README.md
+!/polymarket-ledger/signals/
+!/polymarket-ledger/signals/.gitkeep
+/btc15-*/
+/btc15-mom-*/
 .DS_Store
 npm-debug.log*
 *.log

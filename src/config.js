@@ -1486,6 +1486,18 @@ function buildPolymarketConfig() {
   };
 }
 
+function buildPolymarketUsConfig() {
+  return {
+    enabled: process.env.POLYMARKET_US_ENABLED === 'true',
+    siteBaseUrl: process.env.POLYMARKET_US_SITE_BASE || 'https://polymarket.us',
+    gatewayBaseUrl: process.env.POLYMARKET_US_GATEWAY_BASE || 'https://gateway.polymarket.us/v1',
+    ledgerDir: process.env.POLYMARKET_US_LEDGER_DIR || '/workspace/polymarket-ledger',
+    scannerPlacesOrders: false,
+    standingAutoOrder: true,
+    specVersion: '3.2'
+  };
+}
+
 export function getConfig() {
   const port = Number(process.env.PORT || 3000);
   const apiKey = process.env.ROBINHOOD_API_KEY || '';
@@ -1515,6 +1527,7 @@ export function getConfig() {
       path: process.env.STATS_DB_PATH || 'data/polymarket-stats.db'
     },
     polymarket: buildPolymarketConfig(),
+    polymarketUs: buildPolymarketUsConfig(),
     market: {
       source: (process.env.MARKET_DATA_SOURCE || 'binance').toLowerCase(),
       klineInterval: process.env.MARKET_KLINE_INTERVAL || '1h',

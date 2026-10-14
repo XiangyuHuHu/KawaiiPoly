@@ -8,6 +8,8 @@
     "dev": "node --watch server.js",
     "polymarket:derive-key": "node scripts/polymarket-derive-key.js",
     "polymarket:deposit-wallet": "node scripts/polymarket-deposit-wallet.js",
+    "us:scan": "node scripts/us-scan.js scan",
+    "us:settle": "node scripts/us-scan.js settle",
     "test": "node --test test/*.test.js",
     "check": "node --check server.js"
   },
