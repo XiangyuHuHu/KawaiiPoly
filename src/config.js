@@ -1,4 +1,5 @@
 ﻿import 'dotenv/config';
+import { buildPolymarketUsConfig } from './polymarketUs/config.js';
 
 function parseHoldingsUsd(value) {
   if (!value) return {};
@@ -1515,6 +1516,7 @@ export function getConfig() {
       path: process.env.STATS_DB_PATH || 'data/polymarket-stats.db'
     },
     polymarket: buildPolymarketConfig(),
+    polymarketUs: buildPolymarketUsConfig(),
     market: {
       source: (process.env.MARKET_DATA_SOURCE || 'binance').toLowerCase(),
       klineInterval: process.env.MARKET_KLINE_INTERVAL || '1h',
