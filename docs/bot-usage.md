@@ -14,12 +14,13 @@
 
 ## 扫描器与 bot 的分工
 
-规则版本是 SCAN_SPEC v3 / v3.1。扫描器只监控，不下单。
+规则版本是 SCAN_SPEC v3.2。v3 的「等用户逐笔确认」和「每天最多 2–3 笔」已作废。
 
-- 云端脚本做：客观数据 → 模型概率 → 和美国站卖价的 edge。通过才写 SIGNAL。
-- 每条 SIGNAL 建议金额 $2–5、限价。`auto_order.scanner_places_orders` 固定为 `false`，`auto_order.per_trade_confirm` 为 `true`。
-- bot 只有在对话里看到用户明确确认后，才在 polymarket.us 下限价单。每天最多 3 笔。下完用中文播报市场、方向、价格、金额、理由、`event_url` 和截图。
-- 没有新的 pending SIGNAL，或者内容和上次相同：不要开模型，不要开浏览器，也不要下单。
+- 云端脚本只监控：客观数据 → 模型概率 → 和美国站卖价的 edge。通过才写 SIGNAL。
+- 用户已给站立授权：bot 看到 `status=pending` 就在 polymarket.us 下限价单，不用再问。金额约 $2–5。
+- 每条 SIGNAL 里 `auto_order.scanner_places_orders` 固定为 `false`，`auto_order.per_trade_confirm` 为 `false`。`auto_order.note` 是给 bot 的授权说明。
+- 成交后用中文播报市场、方向、价格、金额、理由、`event_url` 和截图。
+- 没有新的 pending SIGNAL，或者内容和上次相同：不要开模型，不要开浏览器。
 
 ## 什么时候跑
 
@@ -76,7 +77,7 @@ bot 下单后把对应行改成 `filled` 或 `skipped`，记入 `real-orders.jso
 1. 列出 `signals/pending.jsonl` 和 `signals/*.json`。
 2. 没有文件，或每一行都不是 `status=pending`：立刻结束。
 3. `id` 已经下过或标过：跳过，不要再开浏览器。
-4. 有新的 pending，且用户已在对话里明确确认：按 `side`、`limit_price`、`size_usd`、`event_url` 下限价单。未确认就停在 SIGNAL，不要开浏览器。下单前再看一眼卖价；现价高于限价就标 `skipped`。当天已有 3 笔真实单或待确认单，后面的标 `skipped`。
+4. 有新的 pending：按 `side`、`limit_price`、`size_usd`、`event_url` 下限价单，不必再向用户确认。下单前再看一眼卖价；现价高于限价就标 `skipped`。该板块当日已满日帽就标 `skipped`。
 5. 同一 15 分钟窗口不能一边 Up 一边 Down。后到的冲突单跳过。
 
 每晚例程（定时，不看 signals）：
@@ -87,21 +88,21 @@ bot 下单后把对应行改成 `filled` 或 `skipped`，记入 `real-orders.jso
 
 ## 门槛、仓位、日帽
 
-Edge 是模型概率减去美国站卖价。入选硬条件：
+Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 
-- edge ≥ 0.10。价格在 0.15–0.85。
-- 流动性 > $2000（可见买卖盘名义金额；盘口没有这本书就用 BBO 的挂单股数 × 价格）。价差 ≤ 3¢。深度要够这一笔 $2–5。读不到流动性、价差或美国站价格，跳过。
-- `resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。
-- BTC 15 分钟 / 1 小时错价还要求 BBO 不超过 15 秒，结算规则是 BRTI 收盘涨跌（不是 Touch）。
-- BTC 15 分钟动量同样要 edge ≥ 0.10、价格 0.15–0.85，并且现货方向与下单方向一致（`same_way`）。同一窗口错价和动量同时合格时只留错价。同一窗口不能一边 Up 一边 Down。
-- Live 盘中：edge ≥ 0.10，价格 0.15–0.85。
-- Live 尾盘：模型 ≥ 0.93，卖价比模型至少低 0.04，价格上限只在这一类放宽到 0.95。尾盘直接写 SIGNAL 给用户确认，不走自动下单。
+- 非 BTC、非 Live（赛前、天气、宏观、加密长线、master）：≥ 3 个百分点。价格仍要在 0.15–0.85。
+- BTC 15 分钟 / 1 小时错价：≥ 5 个百分点，而且 BBO 不超过 15 秒。结算规则必须是 BRTI 收盘涨跌，不是 Touch。
+- BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
+- Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
+- Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。
+- 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。
+- 同一 15 分钟窗口不能一边 Up 一边 Down。错价和动量同时合格时只留错价。
 - 国际站独有盘不入选：ETH、美债收益率、纽约/洛杉矶/芝加哥/迈阿密/旧金山以外的城市气温。
 - `picks.jsonl` 里已有同一市场、同一方向，不再入选。
 
-建议仓位在 $2–5：默认 $2；该板块真实胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并把 edge 门槛乘 1.5。账本里有 `account.json` 的 `cash_usd` 时，扣掉本笔后必须仍 ≥ $15。
+仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge。现金扣掉本笔后必须仍 ≥ $15；账本里没有 `account.json` 的 `cash_usd` 时，bot 下单前自己核这笔现金。
 
-每天最多 3 笔（含当日 pending 和已成交），按太平洋时间自然日计。
+日帽按太平洋时间自然日，计该板块真实成交加未过期 pending：Live 10、动量 15、BTC 错价 8、赛前 6、天气 4、宏观 3、加密 4、master 4。
 
 板块模型（天气、赛前、宏观等）写在 `polymarket-ledger/model-input.jsonl`，每行要有 `sector`、`slug`、`side`、`model_prob`、`resolution_risk`、`confidence`、`basis`。脚本会用美国站 BBO 覆盖价格；读不到美国站价格就不入选。论坛 `forum-signals.jsonl` 最近 48 小时的 A/B 级只作核对触发，不能代替概率。
 

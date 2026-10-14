@@ -1497,10 +1497,9 @@ function buildPolymarketUsConfig() {
     gatewayBaseUrl: process.env.POLYMARKET_US_GATEWAY_BASE || 'https://gateway.polymarket.us/v1',
     ledgerDir: process.env.POLYMARKET_US_LEDGER_DIR || '/workspace/polymarket-ledger',
     scannerPlacesOrders: false,
-    perTradeConfirm: true,
-    dailyMaxOrders: 3,
-    standingAutoOrder: false,
-    specVersion: '3.1'
+    perTradeConfirm: false,
+    standingAutoOrder: true,
+    specVersion: '3.2'
   };
 }
 

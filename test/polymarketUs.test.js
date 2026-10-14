@@ -21,7 +21,7 @@ function passing(overrides = {}) {
     sector: 'btc-misprice',
     side: 'Up',
     slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
-    modelProb: 0.70,
+    modelProb: 0.62,
     ask: 0.55,
     bid: 0.54,
     spreadCents: 1,
@@ -55,10 +55,9 @@ test('US and international endpoints stay separate', () => {
   assert.equal(config.polymarket.intlPaperEnabled, true);
   assert.equal(config.polymarketUs.line, 'us');
   assert.equal(config.polymarketUs.scannerPlacesOrders, false);
-  assert.equal(config.polymarketUs.standingAutoOrder, false);
-  assert.equal(config.polymarketUs.perTradeConfirm, true);
-  assert.equal(config.polymarketUs.dailyMaxOrders, 3);
-  assert.equal(config.polymarketUs.specVersion, '3.1');
+  assert.equal(config.polymarketUs.standingAutoOrder, true);
+  assert.equal(config.polymarketUs.perTradeConfirm, false);
+  assert.equal(config.polymarketUs.specVersion, '3.2');
   assert.throws(
     () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
     /refuses international/
@@ -125,83 +124,114 @@ test('gateway reads markets, bbo, and book without Gamma', async () => {
   assert.equal(calls.some((url) => url.includes('gamma-api') || url.includes('clob.polymarket.com')), false);
 });
 
-test('v3.1 edge, price band, liquidity, and confirm-before-order', () => {
+test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   const signal = evaluateUsSignal(passing());
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
   assert.equal(signal.signal.size_usd, 2);
-  assert.equal(signal.signal.edge, 0.15);
-  assert.equal(signal.signal.spec_version, '3.1');
+  assert.equal(signal.signal.edge, 0.07);
+  assert.equal(signal.signal.spec_version, '3.2');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
-  assert.equal(signal.signal.auto_order.authorized, false);
-  assert.equal(signal.signal.auto_order.per_trade_confirm, true);
-  assert.match(signal.signal.auto_order.note, /明确确认/);
+  assert.equal(signal.signal.auto_order.authorized, true);
+  assert.equal(signal.signal.auto_order.per_trade_confirm, false);
+  assert.match(signal.signal.auto_order.note, /无需逐笔确认/);
   assert.equal(signal.signal.event_url, 'https://polymarket.us/event/btc-updown-15m-2026-10-14-1530z');
 
-  assert.equal(evaluateUsSignal(passing({ ask: 0.62, modelProb: 0.70 })).reason, 'edge');
+  assert.equal(evaluateUsSignal(passing({ ask: 0.60, modelProb: 0.62 })).reason, 'edge');
   assert.equal(evaluateUsSignal(passing({ ask: 0.90, modelProb: 0.99 })).reason, 'price-band');
-  assert.equal(evaluateUsSignal(passing({ ask: 0.10, modelProb: 0.40 })).reason, 'price-band');
   assert.equal(evaluateUsSignal(passing({ bboSampledAt: '2026-10-14T15:36:00.000Z' })).reason, 'stale-bbo');
   assert.equal(evaluateUsSignal(passing({ resolutionRisk: 'High' })).reason, 'resolution-risk');
   assert.equal(evaluateUsSignal(passing({ confidence: 'Low' })).reason, 'confidence');
   assert.equal(evaluateUsSignal(passing({ spreadCents: 4 })).reason, 'spread');
-  assert.equal(evaluateUsSignal(passing({ liquidityUsd: 2000 })).reason, 'liquidity');
-  assert.equal(evaluateUsSignal(passing({ liquidityUsd: null })).reason, 'liquidity');
+  assert.equal(evaluateUsSignal(passing({ liquidityUsd: null })).ok, true);
   assert.equal(evaluateUsSignal(passing({ slug: 'eth-updown-15m', title: 'ETH up or down' })).reason, 'intl-only');
-  assert.equal(evaluateUsSignal(passing({ title: 'US treasury yield above 4%' })).reason, 'intl-only');
   assert.equal(evaluateUsSignal(passing({ alreadyPicked: true })).reason, 'already-picked');
   assert.equal(evaluateUsSignal(passing({
     openWindows: [{ windowId: '2026-10-14T15:30:00.000Z', side: 'Down', status: 'pending' }]
   })).reason, 'one-sided');
-  assert.equal(evaluateUsSignal(passing({ dailyFilled: 3 })).reason, 'daily-cap');
-  assert.equal(evaluateUsSignal(passing({ dailyOrders: 3, dailyFilled: 0 })).reason, 'daily-cap');
+  assert.equal(evaluateUsSignal(passing({ dailyFilled: 7 })).ok, true);
+  assert.equal(evaluateUsSignal(passing({ dailyFilled: 8 })).reason, 'daily-cap');
+  assert.equal(evaluateUsSignal(passing({ dailyOrders: 3, dailyFilled: 0 })).ok, true);
   assert.equal(evaluateUsSignal(passing({ cashUsd: 16 })).reason, 'cash-reserve');
 
-  const momentum = evaluateUsSignal(passing({ sector: 'momentum', ask: 0.70, modelProb: 0.82 }));
+  const weather = evaluateUsSignal(passing({
+    sector: 'weather',
+    slug: 'nyc-high-70',
+    city: 'New York',
+    modelProb: 0.40,
+    ask: 0.36,
+    timeframe: null,
+    windowId: null
+  }));
+  assert.equal(weather.ok, true);
+  assert.equal(weather.signal.edge, 0.04);
+
+  const momentum = evaluateUsSignal(passing({ sector: 'momentum', ask: 0.80, modelProb: 0.84 }));
   assert.equal(momentum.ok, true);
   assert.equal(momentum.signal.size_usd, 2);
-  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', sameWay: false })).reason, 'momentum-same-way');
-  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', ask: 0.90, modelProb: 0.99 })).reason, 'price-band');
+  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', distanceBps: 3 })).reason, 'momentum-distance');
+  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', sameWay: false, distanceBps: 9 })).reason, 'momentum-same-way');
+  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', ask: 0.90, modelProb: 0.95 })).reason, 'momentum-price-cap');
 
   const endgame = evaluateUsSignal(passing({
     sector: 'live',
     liveKind: 'endgame',
     side: 'Yes',
     timeframe: null,
-    modelProb: 0.96,
-    ask: 0.90,
+    modelProb: 0.93,
+    ask: 0.94,
     slug: 'tec-nba-game'
   }));
   assert.equal(endgame.ok, true);
-  assert.equal(endgame.signal.model_prob, 0.96);
-  assert.equal(endgame.signal.edge, 0.06);
+  assert.equal(endgame.signal.model_prob, 0.93);
   assert.equal(endgame.signal.side, 'Yes');
   assert.equal(evaluateUsSignal(passing({
     sector: 'live',
     liveKind: 'endgame',
-    modelProb: 0.93,
-    ask: 0.94,
-    slug: 'tec-nba-late'
-  })).reason, 'live-endgame-edge');
+    modelProb: 0.87,
+    ask: 0.80,
+    slug: 'tec-nba-early'
+  })).reason, 'live-endgame-model');
+
+  const inGame = evaluateUsSignal(passing({
+    sector: 'live',
+    liveKind: 'in-game',
+    ask: 0.80,
+    modelProb: 0.84,
+    slug: 'tec-nba-live',
+    timeframe: null,
+    windowId: null
+  }));
+  assert.equal(inGame.ok, true);
+  assert.equal(inGame.signal.edge, 0.04);
   assert.equal(evaluateUsSignal(passing({
     sector: 'live',
     liveKind: 'in-game',
-    ask: 0.90,
+    ask: 0.96,
     modelProb: 0.99,
-    slug: 'tec-nba-live'
-  })).reason, 'price-band');
+    slug: 'tec-nba-rich'
+  })).reason, 'live-in-game-price');
 
   assert.equal(sizeForRecord({ wins: 8, losses: 2 }).usd, 5);
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.1');
-  assert.equal(US_RULES.edge.minEdge, 0.10);
-  assert.equal(US_RULES.edge.minLiquidityUsd, 2000);
-  assert.equal(US_RULES.edge.standardMaxPrice, 0.85);
-  assert.equal(US_RULES.edge.liveEndgameMaxPrice, 0.95);
-  assert.equal(US_RULES.orderFlow.dailyMaxOrders, 3);
-  assert.equal(US_RULES.orderFlow.perTradeConfirm, true);
+  assert.equal(US_RULES.specVersion, '3.2');
+  assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
+  assert.equal(US_RULES.edge.btcMisprice, 0.05);
+  assert.equal(US_RULES.edge.liveInGame, 0.04);
+  assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
+  assert.equal(US_RULES.edge.momentumDistanceBps, 4);
+  assert.equal(US_RULES.edge.momentumPriceCap, 0.88);
+  assert.equal(US_RULES.dailyCaps.live, 10);
+  assert.equal(US_RULES.dailyCaps.momentum, 15);
+  assert.equal(US_RULES.dailyCaps['btc-misprice'], 8);
+  assert.equal(US_RULES.dailyCaps.pregame, 6);
+  assert.equal(US_RULES.dailyCaps.weather, 4);
+  assert.equal(US_RULES.dailyCaps.macro, 3);
+  assert.equal(US_RULES.dailyCaps.crypto, 4);
+  assert.equal(US_RULES.dailyCaps.master, 4);
+  assert.equal(US_RULES.standingAutoOrder.perTradeConfirm, false);
   assert.equal(US_RULES.scannerPlacesOrders, false);
 });
 
