@@ -28,11 +28,67 @@ export function sizeUsLimitBuy({ side, slug, limitPrice, sizeUsd }) {
   return buildUsLimitBuyOrder({ slug, side, limitPrice, quantity });
 }
 
+export function usdBalanceRow(payload) {
+  const rows = payload?.balances
+    || payload?.data?.balances
+    || (payload && (payload.buyingPower != null || payload.currentBalance != null) ? [payload] : []);
+  return rows.find((row) => String(row?.currency || 'USD').toUpperCase() === 'USD') || rows[0] || null;
+}
+
+/** 下单现金用 buyingPower。currentBalance 含未结算资金，不能拿来开仓。 */
 export function usdBuyingPower(payload) {
-  const rows = payload?.balances || payload?.data?.balances || [];
-  const usd = rows.find((row) => String(row?.currency || 'USD').toUpperCase() === 'USD') || rows[0];
+  const usd = usdBalanceRow(payload);
   if (!usd) return null;
   return readNumber(usd.buyingPower, usd.currentBalance);
+}
+
+export function positionMap(payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return {};
+  if (payload.positions && typeof payload.positions === 'object' && !Array.isArray(payload.positions)) {
+    return payload.positions;
+  }
+  const looksLikePosition = Object.values(payload).some((row) => row && typeof row === 'object' && (
+    'netPosition' in row || 'netPositionDecimal' in row
+  ));
+  return looksLikePosition ? payload : {};
+}
+
+export function openOrderList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.orders)) return payload.orders;
+  return [];
+}
+
+export function windowsFromPositions(payload) {
+  return Object.entries(positionMap(payload)).flatMap(([slug, position]) => {
+    const net = Number(position?.netPositionDecimal ?? position?.netPosition ?? 0);
+    if (!Number.isFinite(net) || net === 0) return [];
+    return [{ slug, windowId: slug, side: net > 0 ? 'yes' : 'no' }];
+  });
+}
+
+export function windowsFromOpenOrders(payload) {
+  return openOrderList(payload).flatMap((order) => {
+    const intent = String(order?.intent || '');
+    const side = intent === 'ORDER_INTENT_BUY_LONG' ? 'yes'
+      : intent === 'ORDER_INTENT_BUY_SHORT' ? 'no'
+        : null;
+    const slug = order?.marketSlug || order?.slug;
+    if (!side || !slug) return [];
+    return [{ slug, windowId: slug, side }];
+  });
+}
+
+export function summarizeUsAccount(balances, openOrders, positions) {
+  const row = usdBalanceRow(balances);
+  const map = positionMap(positions);
+  return {
+    currency: row?.currency || 'USD',
+    buyingPower: row ? readNumber(row.buyingPower) : null,
+    currentBalance: row ? readNumber(row.currentBalance) : null,
+    openOrderCount: openOrderList(openOrders).length,
+    positionSlugs: Object.keys(map)
+  };
 }
 
 export class PolymarketUsTradingClient {

@@ -17,8 +17,17 @@ export { PolymarketUsGateway, normalizeUsBbo, quoteForSide } from './gateway.js'
 export {
   PolymarketUsTradingClient,
   buildUsLimitBuyOrder,
-  usdBuyingPower
+  summarizeUsAccount,
+  usdBuyingPower,
+  windowsFromOpenOrders,
+  windowsFromPositions
 } from './trading.js';
+export {
+  US_SDK_PACKAGE,
+  createPolymarketUsSdk,
+  createUsTradingClient,
+  polymarketUsSdkOptions
+} from './sdk.js';
 export {
   evaluateUsSchedule,
   evaluateUsSignal,

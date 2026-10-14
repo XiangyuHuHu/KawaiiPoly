@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import nacl from 'tweetnacl';
+import { PolymarketUS } from 'polymarket-us';
 import { PolymarketClient } from '../src/polymarketClient.js';
 import { createUsAuthHeaders } from '../src/polymarketUs/auth.js';
+import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
 import { PolymarketUsGateway } from '../src/polymarketUs/gateway.js';
-import { PolymarketUsTradingClient } from '../src/polymarketUs/trading.js';
+import { createPolymarketUsSdk, createUsTradingClient, polymarketUsSdkOptions } from '../src/polymarketUs/sdk.js';
+import { PolymarketUsTradingClient, summarizeUsAccount, windowsFromOpenOrders, windowsFromPositions } from '../src/polymarketUs/trading.js';
 import { getConfig } from '../src/config.js';
 
 function secretKey() {
@@ -125,6 +128,63 @@ test('US client refuses international hosts and the CLOB client refuses the US g
     () => new PolymarketClient({ gammaBaseUrl: 'https://gateway.polymarket.us' }),
     /美国盘/
   );
+});
+
+test('SDK 0.1.1 is constructed with keyId and secretKey from the US env names', () => {
+  const ignored = buildPolymarketUsConfig({
+    POLYMARKET_API_KEY: 'intl-clob-key',
+    POLYMARKET_API_SECRET: 'intl-secret'
+  });
+  assert.equal(ignored.credentialsConfigured, false);
+  assert.equal(ignored.accessKey, '');
+  assert.equal(polymarketUsSdkOptions({ apiKey: 'not-the-us-key' }).keyId, '');
+
+  const secret = Buffer.from(new Uint8Array(32).fill(4)).toString('base64');
+  const config = buildPolymarketUsConfig({
+    POLYMARKET_US_ACCESS_KEY: '11111111-1111-4111-8111-111111111111',
+    POLYMARKET_US_SECRET_KEY: secret,
+    POLYMARKET_US_LIVE_TRADING_ENABLED: 'true',
+    POLYMARKET_US_DRY_RUN: 'false'
+  });
+  const options = polymarketUsSdkOptions(config);
+  assert.equal(options.keyId, '11111111-1111-4111-8111-111111111111');
+  assert.equal(options.secretKey, secret);
+  assert.equal(Object.hasOwn(options, 'apiKey'), false);
+
+  const sdk = createPolymarketUsSdk(config);
+  assert.ok(sdk instanceof PolymarketUS);
+  assert.equal(sdk.keyId, options.keyId);
+  assert.equal(sdk.apiBaseUrl, 'https://api.polymarket.us');
+  assert.equal(sdk.gatewayBaseUrl, 'https://gateway.polymarket.us');
+
+  const live = createUsTradingClient(config);
+  assert.equal(live.transport, 'polymarket-us@0.1.1');
+  const dry = createUsTradingClient(buildPolymarketUsConfig({
+    POLYMARKET_US_ACCESS_KEY: options.keyId,
+    POLYMARKET_US_SECRET_KEY: secret
+  }));
+  assert.equal(dry.transport, undefined);
+  assert.equal(dry instanceof PolymarketUsTradingClient, true);
+});
+
+test('read-only account shape uses buyingPower and slug-keyed positions', () => {
+  const account = summarizeUsAccount(
+    { balances: [{ currency: 'USD', buyingPower: 41.91, currentBalance: 65.73 }] },
+    { orders: [] },
+    { positions: { 'btc-up-15m': { netPosition: '0' }, 'nyc-high-72': { netPosition: '3' } } }
+  );
+  assert.equal(account.buyingPower, 41.91);
+  assert.equal(account.currentBalance, 65.73);
+  assert.equal(account.openOrderCount, 0);
+  assert.deepEqual(account.positionSlugs, ['btc-up-15m', 'nyc-high-72']);
+  assert.deepEqual(windowsFromPositions({ positions: { 'nyc-high-72': { netPosition: '3' } } }), [
+    { slug: 'nyc-high-72', windowId: 'nyc-high-72', side: 'yes' }
+  ]);
+  assert.deepEqual(windowsFromOpenOrders({
+    orders: [{ marketSlug: 'btc-down-15m', intent: 'ORDER_INTENT_BUY_SHORT' }]
+  }), [
+    { slug: 'btc-down-15m', windowId: 'btc-down-15m', side: 'no' }
+  ]);
 });
 
 test('app config keeps intl CLOB and US gateway on separate lines', () => {

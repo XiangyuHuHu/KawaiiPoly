@@ -93,6 +93,9 @@ test('live mode submits the US order and marks the signal filled', async () => {
     async getPositions() {
       return { positions: {} };
     },
+    async listOpenOrders() {
+      return { orders: [] };
+    },
     async createOrder(body) {
       calls.push(body);
       return { id: 'ord-live-1', executions: [{ type: 'EXECUTION_TYPE_FILL' }] };

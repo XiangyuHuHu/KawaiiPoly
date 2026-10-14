@@ -12,7 +12,13 @@ import {
   settlementResult,
   summarizeSectorStats
 } from './strategy.js';
-import { PolymarketUsTradingClient, usdBuyingPower } from './trading.js';
+import { createUsTradingClient } from './sdk.js';
+import {
+  summarizeUsAccount,
+  usdBuyingPower,
+  windowsFromOpenOrders,
+  windowsFromPositions
+} from './trading.js';
 
 function quoteFromSignal(signal) {
   const side = normalizeOutcomeSide(signal?.side);
@@ -54,17 +60,6 @@ async function resolveQuote(signal, { gateway, now, bboMaxAgeMs, fetchQuotes }) 
   }
 }
 
-function windowsFromPositions(payload) {
-  const map = payload?.positions || {};
-  const rows = [];
-  for (const [slug, position] of Object.entries(map)) {
-    const net = Number(position?.netPositionDecimal ?? position?.netPosition ?? 0);
-    if (!Number.isFinite(net) || net === 0) continue;
-    rows.push({ slug, windowId: slug, side: net > 0 ? 'yes' : 'no' });
-  }
-  return rows;
-}
-
 function windowsFromOrders(orders) {
   return orders.map((order) => ({
     slug: order.slug,
@@ -97,13 +92,7 @@ export async function runPolymarketUsCycle(options = {}) {
     })
     : options.gateway;
   const trading = options.trading === undefined
-    ? new PolymarketUsTradingClient({
-      apiBaseUrl: config.apiBaseUrl,
-      accessKey: config.accessKey,
-      secretKey: config.secretKey,
-      requestTimeoutMs: config.requestTimeoutMs,
-      fetchImpl: options.fetchImpl
-    })
+    ? createUsTradingClient(config, { fetchImpl: options.fetchImpl })
     : options.trading;
 
   const loaded = await loadUsSignals({
@@ -120,13 +109,18 @@ export async function runPolymarketUsCycle(options = {}) {
   const dailyCounts = countSectorFills(orders, parts.dateKey);
   const stats = summarizeSectorStats(orders);
   let buyingPower = options.buyingPower ?? null;
+  let account = null;
   let openWindows = windowsFromOrders(orders.filter((order) => isBlockingOrder(order, parts.dateKey)));
 
   if (!config.dryRun && trading && buyingPower == null) {
-    const balances = await trading.getBalances();
-    buyingPower = usdBuyingPower(balances);
-    const positions = await trading.getPositions();
-    openWindows = openWindows.concat(windowsFromPositions(positions));
+    const [balances, positions, openOrders] = await Promise.all([
+      trading.getBalances(),
+      trading.getPositions(),
+      trading.listOpenOrders ? trading.listOpenOrders() : Promise.resolve({ orders: [] })
+    ]);
+    account = summarizeUsAccount(balances, openOrders, positions);
+    buyingPower = account.buyingPower ?? usdBuyingPower(balances);
+    openWindows = openWindows.concat(windowsFromPositions(positions), windowsFromOpenOrders(openOrders));
   }
 
   const results = [];
@@ -220,6 +214,7 @@ export async function runPolymarketUsCycle(options = {}) {
     ...publicUsConfig(config),
     ranAt: now.toISOString(),
     pacificDate: parts.dateKey,
+    account,
     schedule: results[0]?.schedule || null,
     placed: results.filter((row) => row.action === 'place').length,
     skipped: results.filter((row) => row.action === 'skip').length,

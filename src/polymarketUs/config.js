@@ -65,6 +65,8 @@ export function publicUsConfig(config = buildPolymarketUsConfig()) {
     scheduleWindowMinutes: config.scheduleWindowMinutes,
     bboMaxAgeMs: config.bboMaxAgeMs,
     cashReserveUsd: config.cashReserveUsd,
+    sdkPackage: 'polymarket-us@0.1.1',
+    sdkAuth: 'keyId=POLYMARKET_US_ACCESS_KEY secretKey=POLYMARKET_US_SECRET_KEY',
     intlClobIsolated: true
   };
 }

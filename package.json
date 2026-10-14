@@ -10,6 +10,7 @@
     "polymarket:us": "node scripts/polymarket-us-run.js",
     "polymarket:us:health": "node scripts/polymarket-us-health.js",
     "polymarket:us:smoke": "node scripts/polymarket-us-smoke.js",
+    "polymarket:us:account": "node scripts/polymarket-us-account.js",
     "polymarket:deposit-wallet": "node scripts/polymarket-deposit-wallet.js",
     "test": "node --test test/*.test.js",
     "check": "node --check server.js"
@@ -21,6 +22,7 @@
     "@polymarket/clob-client-v2": "^1.0.8",
     "dotenv": "^16.4.7",
     "kawaii-signal": "file:./packages/kawaii-signal",
+    "polymarket-us": "0.1.1",
     "tweetnacl": "^1.0.3",
     "viem": "^2.54.1"
   },
