@@ -7,6 +7,9 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "polymarket:derive-key": "node scripts/polymarket-derive-key.js",
+    "polymarket:us": "node scripts/polymarket-us-run.js",
+    "polymarket:us:health": "node scripts/polymarket-us-health.js",
+    "polymarket:us:smoke": "node scripts/polymarket-us-smoke.js",
     "polymarket:deposit-wallet": "node scripts/polymarket-deposit-wallet.js",
     "test": "node --test test/*.test.js",
     "check": "node --check server.js"
