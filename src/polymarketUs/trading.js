@@ -35,11 +35,11 @@ export function usdBalanceRow(payload) {
   return rows.find((row) => String(row?.currency || 'USD').toUpperCase() === 'USD') || rows[0] || null;
 }
 
-/** 下单现金用 buyingPower。currentBalance 含未结算资金，不能拿来开仓。 */
+/** 下单现金只用 buyingPower。currentBalance 含未结算资金，缺 buyingPower 时返回 null，不回退。 */
 export function usdBuyingPower(payload) {
   const usd = usdBalanceRow(payload);
   if (!usd) return null;
-  return readNumber(usd.buyingPower, usd.currentBalance);
+  return readNumber(usd.buyingPower);
 }
 
 export function positionMap(payload) {

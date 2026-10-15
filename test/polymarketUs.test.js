@@ -38,7 +38,7 @@ function passing(overrides = {}) {
     record: { wins: 0, losses: 0, lossStreak: 0 },
     dailyFilled: 0,
     dailyPending: 0,
-    cashUsd: 40,
+    buyingPower: 40,
     distanceBps: 6,
     sameWay: true,
     ...overrides
@@ -170,7 +170,8 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(evaluateUsSignal(passing({ dailyFilled: 7 })).ok, true);
   assert.equal(evaluateUsSignal(passing({ dailyFilled: 8 })).reason, 'daily-cap');
   assert.equal(evaluateUsSignal(passing({ dailyOrders: 3, dailyFilled: 0 })).ok, true);
-  assert.equal(evaluateUsSignal(passing({ cashUsd: 16 })).reason, 'cash-reserve');
+  assert.equal(evaluateUsSignal(passing({ buyingPower: 16 })).reason, 'cash-reserve');
+  assert.equal(evaluateUsSignal(passing({ buyingPower: null, cashUsd: 16 })).ok, true);
 
   const weather = evaluateUsSignal(passing({
     sector: 'weather',
@@ -203,6 +204,9 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(endgame.ok, true);
   assert.equal(endgame.signal.model_prob, 0.93);
   assert.equal(endgame.signal.side, 'Yes');
+  assert.equal(endgame.signal.live_kind, 'endgame');
+  assert.equal(endgame.signal.live_phase, 'endgame');
+  assert.equal(endgame.signal.endgame, true);
   assert.equal(evaluateUsSignal(passing({
     sector: 'live',
     liveKind: 'endgame',
@@ -415,7 +419,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       momentumStats: emptyStats()
     });
     assert.equal(preview.signals.length, 1);
-    assert.equal(preview.signals[0].sector, 'btc-misprice');
+    assert.equal(preview.signals[0].sector, 'btc_misprice');
 
     const modest = btcCandidatesFromContext({
       ...context,
@@ -432,7 +436,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       momentumStats: emptyStats()
     });
     assert.equal(modest.signals.length, 1);
-    assert.equal(modest.signals[0].sector, 'btc-misprice');
+    assert.equal(modest.signals[0].sector, 'btc_misprice');
     assert.equal(modest.signals[0].confidence, 'Med');
     assert.equal(modest.signals[0].edge, 0.05);
     assert.equal(modest.skipped.includes('confidence'), false);
@@ -551,7 +555,7 @@ test('weekday 08:37 scans the full suite and dense daytime scans BTC only', asyn
     });
     assert.equal(suite.session.fullSuite, true);
     assert.equal(suiteModels, 1);
-    assert.equal(suite.signals.some((row) => row.sector === 'btc-misprice'), true);
+    assert.equal(suite.signals.some((row) => row.sector === 'btc_misprice'), true);
     assert.equal(suite.signals.some((row) => row.sector === 'weather'), true);
     assert.equal(suite.skipped.includes('pregame:edge'), true);
     assert.equal(suite.signals.some((row) => row.auto_order?.scanner_places_orders === true), false);
@@ -670,7 +674,7 @@ function emptyStats() {
     record: { wins: 0, losses: 0, lossStreak: 0 },
     dailyFilled: 0,
     dailyPending: 0,
-    cashUsd: 40,
+    buyingPower: 40,
     openWindows: [],
     ptDate: '2026-10-14'
   };

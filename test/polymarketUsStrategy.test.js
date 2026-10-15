@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  US_BBO_MAX_AGE_MS,
   US_DAILY_CAPS,
   US_EDGE_BTC_MISPRICE,
   US_EDGE_STANDARD,
@@ -45,7 +46,7 @@ function place(overrides = {}, context = {}) {
     now: WED_OPEN,
     dryRun: true,
     scheduleWindowMinutes: 15,
-    bboMaxAgeMs: 30_000,
+    bboMaxAgeMs: US_BBO_MAX_AGE_MS,
     ...context
   });
 }
@@ -187,13 +188,24 @@ test('BTC misprice requires 5pp and a fresh BBO; momentum needs gates and the 0.
   assert.equal(momentum.code, 'price_band');
   const ungated = place({ sector: 'momentum', limit_price: 0.6, ask: 0.6, model_prob: 0.7 });
   assert.equal(ungated.code, 'momentum_gates');
+  const shortDistance = place({
+    sector: 'momentum',
+    limit_price: 0.6,
+    ask: 0.6,
+    model_prob: 0.7,
+    mos: true,
+    same_way: true,
+    distance_bps: 3
+  });
+  assert.equal(shortDistance.code, 'momentum_distance');
   const gated = place({
     sector: 'momentum',
     limit_price: 0.6,
     ask: 0.6,
     model_prob: 0.7,
     mos: true,
-    same_way: true
+    same_way: true,
+    distance_bps: 4
   });
   assert.equal(gated.action, 'place');
   assert.equal(gated.order.price.value, '0.60');

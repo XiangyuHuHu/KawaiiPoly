@@ -1,5 +1,5 @@
 import {
-  US_CLEANER_EDGE_BONUS,
+  US_BBO_MAX_AGE_MS,
   US_COUNTED_FILL_STATUSES,
   US_DAILY_CAPS,
   US_EDGE_BTC_MISPRICE,
@@ -38,7 +38,7 @@ import {
   windowKey
 } from './shape.js';
 import { quoteForSide } from './gateway.js';
-import { US_RULES } from './rules.js';
+import { cleanerEdgeFloor, US_RULES } from './rules.js';
 import { describeSession } from './time.js';
 import { sizeUsLimitBuy } from './trading.js';
 
@@ -190,7 +190,7 @@ function readSpread(signal, quote) {
   if (quote && Number.isFinite(quote.spread)) return quote.spread;
   const spread = readNumber(signal?.spread);
   if (spread != null && spread >= 0 && spread <= 1) return spread;
-  const cents = readNumber(signal?.spread_cents);
+  const cents = readNumber(signal?.spread_cents, signal?.spreadCents, signal?.gates?.spread_cents);
   if (cents != null) return cents / 100;
   return null;
 }
@@ -198,7 +198,13 @@ function readSpread(signal, quote) {
 function readDepthUsd(signal, quote, price) {
   if (quote && Number.isFinite(quote.depthUsd)) return quote.depthUsd;
   if (quote && Number.isFinite(quote.askShares) && price > 0) return quote.askShares * price;
-  return readNumber(signal?.liquidity_usd, signal?.liquidityUsd, signal?.depth_usd);
+  return readNumber(
+    signal?.liquidity_usd,
+    signal?.liquidityUsd,
+    signal?.depth_usd,
+    signal?.gates?.liquidity_usd,
+    signal?.gates?.depth_usd
+  );
 }
 
 function momentumGatesOpen(signal) {
@@ -208,7 +214,14 @@ function momentumGatesOpen(signal) {
   return Boolean(mos) && Boolean(sameWay);
 }
 
-function isLiveEndgame(signal) {
+function momentumDistanceBps(signal) {
+  const gates = signal?.gates || signal?.momentum || {};
+  return readNumber(signal?.distance_bps, signal?.distanceBps, gates.distance_bps, gates.distanceBps);
+}
+
+export function isLiveEndgame(signal) {
+  const kind = signal?.live_kind ?? signal?.liveKind;
+  if (kind === 'endgame') return true;
   return signal?.live_phase === 'endgame' || signal?.phase === 'endgame' || signal?.endgame === true;
 }
 
@@ -298,39 +311,53 @@ export function evaluateUsSignal(signal, context = {}) {
 
   const bboAt = Date.parse(quote?.observedAt || signal?.bbo_at || signal?.bboAt || '');
   const bboAge = Number.isFinite(bboAt) ? now.getTime() - bboAt : null;
-  const bboFresh = bboAge != null && bboAge >= 0 && bboAge <= (context.bboMaxAgeMs ?? 30_000);
+  // 与 US_BBO_MAX_AGE_MS / rules.edge.bboMaxAgeMs 同一常量（SCAN_SPEC v3.2：15 秒）。
+  const bboFresh = bboAge != null && bboAge >= 0 && bboAge <= (context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS);
   if (sector === 'btc_misprice' && !bboFresh) {
     return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
   }
 
   const edge = model != null ? model - executionPrice : readNumber(signal?.edge);
   const sizing = resolveUsSizeUsd(sector, context.stats, signal?.size_usd ?? signal?.sizeUsd);
-  const cleaner = sizing.cold ? US_CLEANER_EDGE_BONUS : 0;
 
   let minEdge = null;
   let minPrice = US_PRICE_MIN;
   let maxPrice = US_PRICE_MAX;
   if (sector === 'live' && endgame) {
-    const minModel = US_LIVE_ENDGAME_MIN_MODEL + cleaner;
+    // 尾盘没有 edge 门槛。冷板块 ×1.5 不加在 0.88 模型地板上（与扫描一致）。
+    const minModel = US_LIVE_ENDGAME_MIN_MODEL;
     maxPrice = US_LIVE_ENDGAME_MAX_PRICE;
     minPrice = 0;
     if (model == null || model + 1e-9 < minModel) {
       return decision('skip', 'endgame_model', `尾盘模型 ${model} 低于 ${minModel}。`, { ...base, status: 'skipped' });
     }
   } else if (sector === 'live') {
-    minEdge = US_EDGE_LIVE_INPLAY + cleaner;
+    minEdge = cleanerEdgeFloor(US_EDGE_LIVE_INPLAY, sizing.cold);
     maxPrice = US_LIVE_INPLAY_MAX_PRICE;
   } else if (sector === 'btc_misprice') {
-    minEdge = US_EDGE_BTC_MISPRICE + cleaner;
+    minEdge = cleanerEdgeFloor(US_EDGE_BTC_MISPRICE, sizing.cold);
   } else if (sector === 'momentum') {
     maxPrice = US_MOMENTUM_MAX_PRICE;
     minPrice = US_PRICE_MIN;
   } else {
-    minEdge = US_EDGE_STANDARD + cleaner;
+    minEdge = cleanerEdgeFloor(US_EDGE_STANDARD, sizing.cold);
   }
 
   if (executionPrice + 1e-9 < minPrice || executionPrice - 1e-9 > maxPrice) {
     return decision('skip', 'price_band', `价格 ${executionPrice} 不在 ${minPrice}–${maxPrice}。`, { ...base, status: 'skipped' });
+  }
+  if (sector === 'momentum') {
+    // SCAN_SPEC v3.2：动量距离 4 bps；冷板块退回 Plan2 原阈值 8 bps。手写 SIGNAL 也重检。
+    const distance = momentumDistanceBps(signal);
+    const needed = sizing.cold
+      ? US_RULES.edge.momentumOriginalDistanceBps
+      : US_RULES.edge.momentumDistanceBps;
+    if (distance == null || distance + 1e-9 < needed) {
+      return decision('skip', 'momentum_distance', `BTC 动量距离 ${distance ?? '缺失'} bps 低于 ${needed}。`, {
+        ...base,
+        status: 'skipped'
+      });
+    }
   }
   if (minEdge != null && !(edge >= minEdge - 1e-9)) {
     return decision('skip', 'edge', `edge ${edge} 低于门槛 ${minEdge}。`, { ...base, status: 'skipped' });

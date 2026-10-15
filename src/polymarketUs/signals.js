@@ -71,8 +71,9 @@ export function sectorSignalPath(ledgerRoot, signal) {
 export function compatSignalPath(workspaceRoot, signal) {
   if (signal?.timeframe !== '15m') return null;
   const stamp = signalStamp(signal);
-  if (signal.sector === 'btc-misprice') return join(workspaceRoot, `btc15-${stamp}`, 'signal.json');
-  if (signal.sector === 'momentum') return join(workspaceRoot, `btc15-mom-${stamp}`, 'signal.json');
+  const sector = normalizeSector(signal.sector);
+  if (sector === 'btc_misprice') return join(workspaceRoot, `btc15-${stamp}`, 'signal.json');
+  if (sector === 'momentum') return join(workspaceRoot, `btc15-mom-${stamp}`, 'signal.json');
   return null;
 }
 
@@ -94,7 +95,7 @@ export function toCandidateRow(signal, scannedAt) {
     liquidity_usd: signal.gates?.liquidity_usd ?? signal.gates?.depth_usd ?? null,
     spread_cents: signal.gates?.spread_cents ?? null,
     expires_in: signal.expires_at,
-    resolution_source: signal.sector === 'btc-misprice' || signal.sector === 'momentum'
+    resolution_source: normalizeSector(signal.sector) === 'btc_misprice' || normalizeSector(signal.sector) === 'momentum'
       ? 'CF Benchmarks BRTI'
       : null,
     resolution_risk: 'Low',

@@ -1,5 +1,6 @@
 import { eventUrl } from './gateway.js';
-import { US_RULES, US_SPEC_VERSION } from './rules.js';
+import { cleanerEdgeFloor, US_RULES, US_SPEC_VERSION } from './rules.js';
+import { normalizeSector } from './shape.js';
 
 function round4(value) {
   return Math.round(Number(value) * 1e4) / 1e4;
@@ -57,8 +58,15 @@ export function minEdgeFor(sector, { liveKind = null, weak = false } = {}, rules
     : sector === 'btc-misprice'
       ? rules.edge.btcMisprice
       : rules.edge.nonBtcNonLive;
-  if (weak) edge = round4(edge * rules.edge.weakEdgeMultiplier);
-  return edge;
+  return cleanerEdgeFloor(edge, weak, rules);
+}
+
+function rulesSector(value, rules = US_RULES) {
+  const canonical = normalizeSector(value);
+  if (!canonical) return null;
+  if (rules.dailyCaps[canonical]) return canonical;
+  if (canonical === 'btc_misprice' && rules.dailyCaps['btc-misprice']) return 'btc-misprice';
+  return null;
 }
 
 export function intlOnlyReason(input = {}, rules = US_RULES) {
@@ -121,8 +129,9 @@ function reject(reason) {
  * Decide whether a US quote is a pending order. Does not place the order.
  */
 export function evaluateUsSignal(input, rules = US_RULES) {
-  const sector = input?.sector;
-  if (!rules.dailyCaps[sector]) return reject('unknown-sector');
+  const writtenSector = normalizeSector(input?.sector);
+  const sector = rulesSector(input?.sector, rules);
+  if (!writtenSector || !sector || !rules.dailyCaps[sector]) return reject('unknown-sector');
   const polarity = sidePolarity(input.side);
   if (!polarity) return reject('side');
   const ask = finite(input.ask);
@@ -138,7 +147,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   if (resolutionRisk === 'High') return reject('resolution-risk');
   const rawModel = finite(input.modelProb);
   if (rawModel == null || !(rawModel > 0 && rawModel < 1)) return reject('model');
-  const liveKind = input.liveKind || null;
+  const liveKind = input.liveKind || input.live_kind || null;
   const capModel = !(sector === 'live' && liveKind === 'endgame');
   const modelProb = capModel ? Math.min(rawModel, rules.edge.modelProbCap) : Math.min(rawModel, 0.99);
   const confidence = confidenceRank(input.confidence, modelProb, rules);
@@ -199,18 +208,21 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const used = (finite(input.dailyFilled) || 0) + (finite(input.dailyPending) || 0);
   if (used >= rules.dailyCaps[sector]) return reject('daily-cap');
 
-  const cash = finite(input.cashUsd);
-  if (cash != null && cash - sizing.usd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
+  const buyingPower = finite(input.buyingPower);
+  if (buyingPower != null && buyingPower - sizing.usd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
 
   const slug = String(input.slug || '');
   if (!slug) return reject('slug');
   const side = displaySide(input.side, input.timeframe);
   const edge = round4(modelProb - ask);
-  const id = `${sector}:${slug}:${polarity}`;
+  const id = `${writtenSector}:${slug}:${polarity}`;
   const signal = {
     spec_version: US_SPEC_VERSION,
     id,
-    sector,
+    sector: writtenSector,
+    live_kind: sector === 'live' ? liveKind : null,
+    live_phase: sector === 'live' ? liveKind : null,
+    endgame: sector === 'live' && liveKind === 'endgame',
     slug,
     side,
     limit_price: round4(ask),
@@ -243,7 +255,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
       liquidity_usd: liquidityUsd,
       depth_usd: depthUsd,
       size_tier: sizing.tier,
-      cash_reserve_checked: cash != null
+      cash_reserve_checked: buyingPower != null
     }
   };
   return { ok: true, reason: null, signal };

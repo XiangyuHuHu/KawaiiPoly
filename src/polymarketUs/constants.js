@@ -42,8 +42,7 @@ export const US_WINRATE_SAMPLES_70 = 5;
 export const US_WINRATE_SAMPLES_80 = 10;
 export const US_WINRATE_FLOOR = 0.45;
 export const US_LOSS_STREAK = 3;
-/** 胜率偏低或连亏时，在板块门槛上再加的 edge。 */
-export const US_CLEANER_EDGE_BONUS = 0.02;
+/** 冷板块 edge 不用加 0.02。SCAN_SPEC v3.2 把门槛乘 1.5，见 rules.js cleanerEdgeFloor。 */
 
 export const US_EDGE_STANDARD = 0.03;
 export const US_EDGE_BTC_MISPRICE = 0.05;
@@ -58,7 +57,11 @@ export const US_LIVE_INPLAY_MAX_PRICE = 0.95;
 export const US_MOMENTUM_MAX_PRICE = 0.88;
 export const US_MOMENTUM_TRIGGER_SCALE = 0.5;
 export const US_MAX_SPREAD = 0.03;
-export const US_BBO_MAX_AGE_MS = 30_000;
+/**
+ * SCAN_SPEC v3.2：BTC 错价 BBO 最大年龄 15 秒（docs/bot-usage「BBO 不超过 15 秒」）。
+ * rules.edge.bboMaxAgeMs、config 默认值、扫描与下单评估器都引用这一常量，不用 30 秒。
+ */
+export const US_BBO_MAX_AGE_MS = 15_000;
 
 /** 真实下单日帽（太平洋自然日）。dry-run 不计入。 */
 export const US_DAILY_CAPS = Object.freeze({
