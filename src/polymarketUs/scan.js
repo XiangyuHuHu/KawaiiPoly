@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { btcResolutionRisk, evaluateUsSignal, sidePolarity } from './evaluate.js';
+import { btcResolutionRisk, evaluateUsSignal, rankConfidenceScore, sidePolarity } from './evaluate.js';
 import { eventSlug } from './gateway.js';
 import { US_RULES } from './rules.js';
 import {
@@ -226,7 +226,7 @@ export function btcCandidatesFromContext({
     bboSampledAt: bbo?.sampledAt || null,
     distanceBps,
     dailyOrders,
-    confidence: signal?.confidence >= 0.62 ? 'High' : signal?.confidence >= 0.56 ? 'Med' : 'Low'
+    confidence: rankConfidenceScore(signal?.confidence)
   };
   const sectorStats = {
     'btc-misprice': mispriceStats,
@@ -339,7 +339,7 @@ export async function runUsScan({
   const allowSuite = ignoreWindow || session.fullSuite;
   if (!allowShort && !allowLong && !allowSuite) {
     await writeStatus(ledgerRoot, 'last-scan.json', { signal: false, reason: 'outside-window', session });
-    return { published: 0, signals: [], reason: 'outside-window', session };
+    return { published: 0, signals: [], skipped: [], reason: 'outside-window', session };
   }
   const published = [];
   const skipped = [];
@@ -433,6 +433,7 @@ export async function runUsScan({
   return {
     published: published.length,
     signals: published,
+    skipped,
     reason: published.length ? 'signal' : (skipped[0] || 'no-signal'),
     session
   };

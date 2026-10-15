@@ -28,7 +28,8 @@ if (command === 'settle') {
     refreshQuote: (model) => refreshUsQuote(gateway, model)
   });
   const ids = result.signals.map((signal) => signal.id).join(',');
-  console.log(`us-scan signals=${result.published} reason=${result.reason}${ids ? ` id=${ids}` : ''}`);
+  const session = result.session?.label ? ` session=${result.session.label}` : '';
+  console.log(`us-scan signals=${result.published} reason=${result.reason}${session}${ids ? ` id=${ids}` : ''}`);
 } else {
   console.error('usage: node scripts/us-scan.js [scan|settle]');
   process.exit(1);

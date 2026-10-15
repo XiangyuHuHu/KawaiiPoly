@@ -38,6 +38,8 @@ import {
   windowKey
 } from './shape.js';
 import { quoteForSide } from './gateway.js';
+import { US_RULES } from './rules.js';
+import { describeSession } from './time.js';
 import { sizeUsLimitBuy } from './trading.js';
 
 export function pacificParts(date) {
@@ -88,9 +90,15 @@ export function isLongHorizonSignal(signal) {
     || normalizeSector(signal?.sector) === 'master';
 }
 
+function isBtcShortSector(signal) {
+  const sector = normalizeSector(signal?.sector);
+  return sector === 'btc_misprice' || sector === 'momentum';
+}
+
 /**
- * 周末全开。工作日只在 8:37 / 12:37 / 18:37 窗口下单。
- * 周一 8:50 额外允许一笔偏长期（master / long_horizon）。
+ * 周末全开。工作日 8:37 / 12:37 / 18:37 全板块可下单。
+ * 工作日白天密集窗只放 BTC 错价和动量，其它板块仍等三个窗口。
+ * 周一 8:50 额外允许偏长期（master / long_horizon）。
  */
 export function evaluateUsSchedule(now, signal, windowMinutes) {
   const parts = pacificParts(now);
@@ -104,6 +112,9 @@ export function evaluateUsSchedule(now, signal, windowMinutes) {
   }
   if (parts.isMonday && isLongHorizonSignal(signal) && inWindow(parts.minutesOfDay, US_MONDAY_LONG_WINDOW, span)) {
     return { open: true, code: 'monday_long', windowId: US_MONDAY_LONG_WINDOW.id, parts };
+  }
+  if (isBtcShortSector(signal) && describeSession(now, US_RULES).btcShortDense) {
+    return { open: true, code: 'weekday_btc_dense', windowId: 'wd-btc-dense', parts };
   }
   return { open: false, code: 'outside_schedule', windowId: null, parts };
 }
