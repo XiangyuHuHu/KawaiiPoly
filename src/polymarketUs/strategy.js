@@ -97,7 +97,7 @@ function isBtcShortSector(signal) {
 
 /**
  * 周末全开。工作日 8:37 / 12:37 / 18:37 全板块可下单。
- * 工作日白天密集窗只放 BTC 错价和动量，其它板块仍等三个窗口。
+ * 工作日 BTC 短周期密集窗为 24/7（用户 2026-10-15），只放 BTC 错价和动量，其它板块仍等三个窗口。
  * 周一 8:50 额外允许偏长期（master / long_horizon）。
  */
 export function evaluateUsSchedule(now, signal, windowMinutes) {

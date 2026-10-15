@@ -77,7 +77,7 @@ export const US_DAILY_CAPS = Object.freeze({
 });
 
 /** 周一到周五 PT 三个全板块下单窗。半开区间 [start, start+window)。
- *  BTC 15m/1h 错价和 15m 动量在白天另有密集窗，时钟在 US_RULES.schedule.weekdayBtcDense。
+ *  BTC 15m/1h 错价和 15m 动量在工作日 24/7 另有密集窗（用户 2026-10-15），时钟在 US_RULES.schedule.weekdayBtcDense。
  */
 export const US_WEEKDAY_WINDOWS = Object.freeze([
   Object.freeze({ id: 'wd-0837', hour: 8, minute: 37 }),
