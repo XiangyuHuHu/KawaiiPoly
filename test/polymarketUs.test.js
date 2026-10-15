@@ -8,6 +8,7 @@ import { brtiOfficialPrice, brtiSettlesUp, settlementFromUsMarket } from '../src
 import { summarizeUsSettlements, runUsDigest } from '../src/polymarketUs/digest.js';
 import { evaluateUsSignal, sizeForRecord } from '../src/polymarketUs/evaluate.js';
 import { PolymarketUsGateway, eventUrl } from '../src/polymarketUs/gateway.js';
+import { US_BBO_MAX_AGE_MS, US_EDGE_BTC_MISPRICE } from '../src/polymarketUs/constants.js';
 import { US_RULES } from '../src/polymarketUs/rules.js';
 import { btcCandidatesFromContext, runUsScan } from '../src/polymarketUs/scan.js';
 import { publishUsSignal, readJsonl } from '../src/polymarketUs/signals.js';
@@ -240,7 +241,10 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
   assert.equal(US_RULES.specVersion, '3.2');
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
-  assert.equal(US_RULES.edge.btcMisprice, 0.05);
+  assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
+  assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);
+  assert.equal(US_RULES.edge.bboMaxAgeMs, US_BBO_MAX_AGE_MS);
+  assert.equal(US_BBO_MAX_AGE_MS, 45_000);
   assert.equal(US_RULES.edge.liveInGame, 0.04);
   assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
   assert.equal(US_RULES.edge.momentumDistanceBps, 4);

@@ -5,7 +5,7 @@
  * The bot may send the limit order without another chat confirmation.
  */
 
-import { US_BBO_MAX_AGE_MS } from './constants.js';
+import { US_BBO_MAX_AGE_MS, US_EDGE_BTC_MISPRICE } from './constants.js';
 
 export const US_SPEC_VERSION = '3.2';
 
@@ -29,9 +29,10 @@ export const US_RULES = Object.freeze({
   }),
   edge: Object.freeze({
     nonBtcNonLive: 0.03,
-    btcMisprice: 0.05,
+    // 与 constants.US_EDGE_BTC_MISPRICE 同一常量。只覆盖 BTC 15m / 1h 错价。
+    btcMisprice: US_EDGE_BTC_MISPRICE,
     btcMispriceRequiresFreshBbo: true,
-    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。SCAN_SPEC v3.2：BTC 错价 BBO 不超过 15 秒。
+    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。BTC 错价 BBO 不超过 45 秒。
     bboMaxAgeMs: US_BBO_MAX_AGE_MS,
     // Plan2 15m momentum distance is 8 bps. v3.2 uses half of that trigger.
     momentumOriginalDistanceBps: 8,

@@ -64,7 +64,7 @@ test('SCAN_SPEC v3.2 caps, edges, and momentum scale are constants', () => {
     master: 4
   });
   assert.equal(US_EDGE_STANDARD, 0.03);
-  assert.equal(US_EDGE_BTC_MISPRICE, 0.05);
+  assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_MOMENTUM_MAX_PRICE, 0.88);
   assert.equal(US_MOMENTUM_TRIGGER_SCALE, 0.5);
 });
@@ -168,15 +168,23 @@ test('cash reserve blocks a live-sized order that would leave less than $15', ()
   assert.equal(ok.action, 'place');
 });
 
-test('BTC misprice requires 5pp and a fresh BBO; momentum needs gates and the 0.88 cap', () => {
+test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88 cap', () => {
   const stale = place({
     sector: 'btc_misprice',
     model_prob: 0.6,
     bbo_at: new Date(WED_OPEN.getTime() - 60_000).toISOString()
   });
   assert.equal(stale.code, 'stale_bbo');
-  const thin = place({ sector: 'btc_misprice', model_prob: 0.44, edge: 0.04 });
+  const within45s = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    bbo_at: new Date(WED_OPEN.getTime() - 30_000).toISOString()
+  });
+  assert.equal(within45s.action, 'place');
+  const thin = place({ sector: 'btc_misprice', model_prob: 0.43, edge: 0.03 });
   assert.equal(thin.code, 'edge');
+  const fourPp = place({ sector: 'btc_misprice', model_prob: 0.44, edge: 0.04 });
+  assert.equal(fourPp.action, 'place');
   const momentum = place({
     sector: 'momentum',
     limit_price: 0.9,

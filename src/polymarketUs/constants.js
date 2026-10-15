@@ -45,7 +45,8 @@ export const US_LOSS_STREAK = 3;
 /** 冷板块 edge 不用加 0.02。SCAN_SPEC v3.2 把门槛乘 1.5，见 rules.js cleanerEdgeFloor。 */
 
 export const US_EDGE_STANDARD = 0.03;
-export const US_EDGE_BTC_MISPRICE = 0.05;
+/** BTC 15m / 1h 错价最低 edge（4pp）。扫描 rules.edge.btcMisprice 与下单重检共用这一常量。 */
+export const US_EDGE_BTC_MISPRICE = 0.04;
 export const US_EDGE_LIVE_INPLAY = 0.04;
 export const US_MODEL_PROB_CAP = 0.9;
 export const US_LIVE_ENDGAME_MIN_MODEL = 0.88;
@@ -58,10 +59,10 @@ export const US_MOMENTUM_MAX_PRICE = 0.88;
 export const US_MOMENTUM_TRIGGER_SCALE = 0.5;
 export const US_MAX_SPREAD = 0.03;
 /**
- * SCAN_SPEC v3.2：BTC 错价 BBO 最大年龄 15 秒（docs/bot-usage「BBO 不超过 15 秒」）。
- * rules.edge.bboMaxAgeMs、config 默认值、扫描与下单评估器都引用这一常量，不用 30 秒。
+ * BTC 错价 BBO 最大年龄 45 秒（45000 ms）。
+ * rules.edge.bboMaxAgeMs、config 默认值、扫描 emit 与下单 recheck 都引用这一常量。
  */
-export const US_BBO_MAX_AGE_MS = 15_000;
+export const US_BBO_MAX_AGE_MS = 45_000;
 
 /** 真实下单日帽（太平洋自然日）。dry-run 不计入。 */
 export const US_DAILY_CAPS = Object.freeze({
