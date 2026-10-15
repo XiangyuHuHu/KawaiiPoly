@@ -96,11 +96,11 @@ function isBtcShortSector(signal) {
 }
 
 /**
- * 周末全开。工作日 8:37 / 12:37 / 18:37 全板块可下单。
- * 工作日白天密集窗只放 BTC 错价和动量，其它板块仍等三个窗口。
- * 周一 8:50 额外允许偏长期（master / long_horizon）。
+ * 全板块默认每天每轮可下单（fullSuiteEveryLoop）。
+ * 周末、工作日 8:37 / 12:37 / 18:37、周一 8:50 长期单、工作日 BTC 密集窗仍保留原来的 windowId。
+ * 只有把 rules.schedule.fullSuiteEveryLoop 设为 false 时，三个窗口之外的非 BTC 才回到 outside_schedule。
  */
-export function evaluateUsSchedule(now, signal, windowMinutes) {
+export function evaluateUsSchedule(now, signal, windowMinutes, rules = US_RULES) {
   const parts = pacificParts(now);
   if (parts.isWeekend) {
     return { open: true, code: 'weekend', windowId: 'weekend', parts };
@@ -113,8 +113,11 @@ export function evaluateUsSchedule(now, signal, windowMinutes) {
   if (parts.isMonday && isLongHorizonSignal(signal) && inWindow(parts.minutesOfDay, US_MONDAY_LONG_WINDOW, span)) {
     return { open: true, code: 'monday_long', windowId: US_MONDAY_LONG_WINDOW.id, parts };
   }
-  if (isBtcShortSector(signal) && describeSession(now, US_RULES).btcShortDense) {
+  if (isBtcShortSector(signal) && describeSession(now, rules).btcShortDense) {
     return { open: true, code: 'weekday_btc_dense', windowId: 'wd-btc-dense', parts };
+  }
+  if (rules?.schedule?.fullSuiteEveryLoop !== false) {
+    return { open: true, code: 'full_suite', windowId: 'full-suite', parts };
   }
   return { open: false, code: 'outside_schedule', windowId: null, parts };
 }

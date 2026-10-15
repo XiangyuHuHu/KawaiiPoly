@@ -26,24 +26,19 @@
 
 时区是太平洋时间。
 
-- 周一到周五 **8:37、12:37、18:37** 各跑一次全板块（窗口 15 分钟）：体育直播、赛前、天气、宏观、加密、master，以及 BTC 15 分钟 / 1 小时。门槛、日帽、现金和周末全套相同。
-- 周一到周五 **8:00–20:00**（太平洋时间，不含 20:00）另外可以密集扫 BTC：15 分钟和 1 小时错价，加上 15 分钟动量。建议每 15 分钟跑一次 `npm run us:scan`。这段不靠浏览器，行情来自 `gateway.polymarket.us`。其它板块在这段里不扫，除非刚好落在上面三个窗口。没有合格 edge 就不写 SIGNAL。
-- 周六日全天可跑全板块。仍然没有合格 edge 就不写文件。
-- 周一 **8:50** 额外看一笔偏长期（`crypto` / `master`）。模型概率要写在 `model-input.jsonl`，脚本再用美国站 BBO 重定价。没有模型文件就没有长期 SIGNAL。8:50 落在早盘窗口内，那一次会连同全板块一起看；8:52–9:05 只剩长期单加 BTC 短线。
+- 每天、每轮都跑全板块：赛前、天气、宏观、加密、master，以及 BTC 15 分钟 / 1 小时。不再只在工作日 8:37 / 12:37 / 18:37 或周末才看非 BTC。这三个钟点仍会标成原来的窗口名，但不是开关。门槛、日帽、现金不变。
+- 工作日 **00:00–24:00**（太平洋时间，不含 24:00）BTC 15 分钟 / 1 小时错价和 15 分钟动量照旧可扫。周末本身就是全板块。建议每 15 分钟跑一次 `npm run us:scan`。行情来自 `gateway.polymarket.us`，模型来自公开接口，不靠浏览器。没有合格 edge 就不写 SIGNAL。
+- 周一 **8:50** 仍把该轮标成偏长期（`crypto` / `master`），但这两类和其他非 BTC 一样，整天都能出模型。
+- 非 BTC 的模型由扫描器自己拉公开数据：赛前对 Pinnacle，天气对 NWS / Open-Meteo，宏观和政治对 Kalshi（CME FedWatch 能返回时一并参考），长期 BTC 对 Deribit 期权，master 看互斥合约和触及阶梯是否打架。手写的 `model-input.jsonl` 仍会并进去。某个数据源失败只让该板块本轮为 0，不挡住其它板块。
 - 国际短线扫描保持暂停，不要用这套脚本去扫国际盘。
 
 ```cron
 CRON_TZ=America/Los_Angeles
-37 8,12,18 * * 1-5 cd /workspace && npm run us:scan
-50 8 * * 1 cd /workspace && npm run us:scan
-*/15 8-19 * * 1-5 cd /workspace && npm run us:scan
-*/15 * * * 0,6 cd /workspace && npm run us:scan
+*/15 * * * * cd /workspace && npm run us:scan
 5 23 * * * cd /workspace && npm run us:settle
 ```
 
-工作日 `*/15 8-19` 在 8:00–19:45 每 15 分钟扫一次 BTC。它踩不中 8:37 / 12:37 / 18:37，所以全板块仍要单独的三行。若某次 `*/15` 落进这三个 15 分钟窗口（例如 8:45），同一次会升成全板块。`us:settle` 只做结算摘要。
-
-手动补跑、不看钟点：`POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan`。平时不要靠这个开关加密扫描；白天直接 `npm run us:scan`，会话标志 `btcShortDense` 会放行 BTC。
+每 15 分钟的全天循环都会带上全板块。`POLYMARKET_US_IGNORE_WINDOW=1` 仍然可用，但默认已经不用靠它绕过钟点。`us:settle` 只做结算摘要。下单例程对非 BTC 同样不再因三个窗口之外而 `outside_schedule`。
 
 ## SIGNAL 写在哪里
 
@@ -106,7 +101,7 @@ Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 
 日帽按太平洋时间自然日，计该板块真实成交加未过期 pending：Live 10、动量 15、BTC 错价 8、赛前 6、天气 4、宏观 3、加密 4、master 4。
 
-板块模型（天气、赛前、宏观等）写在 `polymarket-ledger/model-input.jsonl`，每行要有 `sector`、`slug`、`side`、`model_prob`、`resolution_risk`、`confidence`、`basis`。脚本会用美国站 BBO 覆盖价格；读不到美国站价格就不入选。论坛 `forum-signals.jsonl` 最近 48 小时的 A/B 级只作核对触发，不能代替概率。
+板块模型（天气、赛前、宏观等）由 `npm run us:scan` 直接生成。手写行仍可放在 `polymarket-ledger/model-input.jsonl`，每行要有 `sector`、`slug`、`side`、`model_prob`、`resolution_risk`、`confidence`、`basis`。脚本会用美国站 BBO 覆盖价格；读不到美国站价格就不入选。各板块行数打在 `us-scan models pregame=… weather=… macro=… crypto=… master=…`，并写入 `status/model-counts.json`。论坛 `forum-signals.jsonl` 最近 48 小时的 A/B 级只作核对触发，不能代替概率。
 
 ## 命令
 

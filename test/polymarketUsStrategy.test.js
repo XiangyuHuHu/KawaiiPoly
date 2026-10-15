@@ -69,32 +69,55 @@ test('SCAN_SPEC v3.2 caps, edges, and momentum scale are constants', () => {
   assert.equal(US_MOMENTUM_TRIGGER_SCALE, 0.5);
 });
 
-test('weekday 8:37 PT is open and 8:20 PT waits', () => {
+test('weekday 8:37 PT is a named window and 8:20 PT is still full suite', () => {
   assert.equal(pacificParts(WED_OPEN).weekday, 'Wed');
   assert.equal(pacificParts(WED_OPEN).hour, 8);
   assert.equal(pacificParts(WED_OPEN).minute, 37);
   assert.equal(evaluateUsSchedule(WED_OPEN, signal(), 15).open, true);
-  assert.equal(evaluateUsSchedule(WED_CLOSED, signal(), 15).open, false);
+  assert.equal(evaluateUsSchedule(WED_OPEN, signal(), 15).code, 'weekday');
+  const offWindow = evaluateUsSchedule(WED_CLOSED, signal(), 15);
+  assert.equal(offWindow.open, true);
+  assert.equal(offWindow.code, 'full_suite');
   assert.equal(evaluateUsSchedule(SAT_ANY, signal(), 15).windowId, 'weekend');
 });
 
-test('weekday daytime opens BTC short sectors and leaves other sectors closed', () => {
+test('weekday BTC short dense is 24/7 and other sectors stay open all day', () => {
   const nine = new Date('2026-10-14T16:00:00.000Z');
-  assert.equal(evaluateUsSchedule(nine, signal({ sector: 'weather' }), 15).open, false);
-  assert.equal(evaluateUsSchedule(nine, signal({ sector: 'pregame' }), 15).open, false);
+  assert.equal(evaluateUsSchedule(nine, signal({ sector: 'weather' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(nine, signal({ sector: 'weather' }), 15).code, 'full_suite');
+  assert.equal(evaluateUsSchedule(nine, signal({ sector: 'pregame' }), 15).open, true);
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'btc_misprice' }), 15).code, 'weekday_btc_dense');
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'btc-misprice' }), 15).open, true);
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'momentum' }), 15).windowId, 'wd-btc-dense');
   const evening = new Date('2026-10-15T05:00:00.000Z');
-  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).open, false);
-  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'momentum' }), 15).code, 'outside_schedule');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).code, 'weekday_btc_dense');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'momentum' }), 15).windowId, 'wd-btc-dense');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15).code, 'full_suite');
+  const early = new Date('2026-10-14T14:30:00.000Z');
+  assert.equal(evaluateUsSchedule(early, signal({ sector: 'momentum' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(early, signal({ sector: 'pregame' }), 15).code, 'full_suite');
+  const narrow = {
+    schedule: {
+      fullSuiteEveryLoop: false,
+      weekdayBtcDense: { start: '08:00', end: '20:00' },
+      sessionLengthMinutes: 15,
+      weekdaySessions: ['08:37', '12:37', '18:37'],
+      mondayLongDated: '08:50',
+      timeZone: 'America/Los_Angeles'
+    }
+  };
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15, narrow).open, false);
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15, narrow).code, 'outside_schedule');
 });
 
-test('Monday 9:00 PT allows master only', () => {
+test('Monday 9:00 PT still labels master and also opens the rest of the suite', () => {
   const parts = pacificParts(MON_LONG);
   assert.equal(parts.isMonday, true);
   assert.equal(parts.hour, 9);
-  assert.equal(evaluateUsSchedule(MON_LONG, signal({ sector: 'weather' }), 15).open, false);
+  assert.equal(evaluateUsSchedule(MON_LONG, signal({ sector: 'weather' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(MON_LONG, signal({ sector: 'weather' }), 15).code, 'full_suite');
   assert.equal(evaluateUsSchedule(MON_LONG, signal({ sector: 'master', long_horizon: true }), 15).windowId, 'mon-0850');
 });
 
@@ -130,11 +153,10 @@ test('edge below 3pp is skipped and does not touch a schedule defer', () => {
   assert.equal(result.updateStatus, true);
 });
 
-test('outside the weekday window defers a valid signal', () => {
+test('outside the old weekday windows a valid non-BTC signal still places', () => {
   const result = place({}, { now: WED_CLOSED });
-  assert.equal(result.action, 'defer');
-  assert.equal(result.code, 'outside_schedule');
-  assert.equal(result.updateStatus, false);
+  assert.equal(result.action, 'place');
+  assert.notEqual(result.code, 'outside_schedule');
 });
 
 test('win-rate tiers and a cold sector stay at $2 with a cleaner edge', () => {

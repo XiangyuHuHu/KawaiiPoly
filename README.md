@@ -15,7 +15,7 @@ Polymarket 在这个仓库里分成两条线，结算来源不能混用。
 
 国际盘客户端若被指到 `gateway.polymarket.us` 会直接拒绝。美国盘客户端若被指到 `clob.polymarket.com` 或 `gamma-api.polymarket.com` 也会拒绝。
 
-美国盘规则在 `src/polymarketUs/constants.js` 和 `src/polymarketUs/rules.js`，对应 SCAN_SPEC v3.2：edge 门槛、胜率仓位 $2–$5、日帽、工作日三个全板块时段、白天 BTC 密集扫描、单边窗口、动量 mos/same_way。扫描节奏见 `docs/bot-usage.md`。
+美国盘规则在 `src/polymarketUs/constants.js` 和 `src/polymarketUs/rules.js`，对应 SCAN_SPEC v3.2：edge 门槛、胜率仓位 $2–$5、日帽、全板块每天每轮、工作日 BTC 密集窗 24/7、单边窗口、动量 mos/same_way。非 BTC 模型在 `src/polymarketUs/models.js`，用公开数据生成，不读浏览器例程。扫描节奏见 `docs/bot-usage.md`。
 
 ## 美国盘怎么跑
 
