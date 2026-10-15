@@ -98,3 +98,13 @@ export function readNumber(...values) {
   }
   return null;
 }
+
+/** Like readNumber, but null and '' are missing. Number(null) === 0 must not become a depth. */
+export function readPresentNumber(...values) {
+  for (const value of values) {
+    if (value == null || value === '') continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}

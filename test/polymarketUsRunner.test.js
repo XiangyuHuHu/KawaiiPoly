@@ -45,6 +45,7 @@ test('dry-run turns a pending SIGNAL into an order payload and does not call fet
   const report = await runPolymarketUsCycle({
     config,
     now: NOW,
+    fetchQuotes: false,
     fetchImpl: async () => {
       fetched += 1;
       throw new Error('dry-run should not hit the network');
@@ -180,4 +181,268 @@ test('opposite BTC window is skipped', async () => {
   const report = await runPolymarketUsCycle({ config, now: NOW, fetchQuotes: false });
   assert.equal(report.results[0].code, 'one_sided');
   assert.equal(report.placed, 0);
+});
+
+function freshSample(ageMs) {
+  return new Date(Date.now() - ageMs).toISOString().replace(
+    /(\.\d{3})Z$/,
+    (_, millis) => `${millis}865572469Z`
+  );
+}
+
+function normalizedBbo(overrides = {}) {
+  return {
+    bestBid: 0.41,
+    bestAsk: 0.42,
+    longQuote: 0.42,
+    shortQuote: 0.59,
+    yesAsk: 0.42,
+    noAsk: 0.59,
+    spread: 0.01,
+    askShares: 140000,
+    bidShares: 230000,
+    sampledAt: freshSample(4_000),
+    observedAt: freshSample(4_000),
+    ...overrides
+  };
+}
+
+test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp', async () => {
+  const { dir, config } = await fixture();
+  const calls = [];
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-btc-stale-scan',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-demo',
+    side: 'Up',
+    limit_price: 0.7,
+    ask: 0.7,
+    model_prob: 0.76,
+    spread_cents: 1,
+    gates: { spread_cents: 1, liquidity_usd: null, depth_usd: 40 },
+    bbo_at: new Date(Date.now() - 120_000).toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = {
+    async getBbo(slug) {
+      calls.push(['bbo', slug]);
+      return normalizedBbo({
+        bestBid: 0.69,
+        bestAsk: 0.7,
+        longQuote: 0.7,
+        shortQuote: 0.31,
+        yesAsk: 0.7,
+        noAsk: 0.31,
+        spread: 0.01
+      });
+    },
+    async getBook(slug) {
+      calls.push(['book', slug]);
+      const error = new Error('market not found');
+      error.status = 404;
+      throw error;
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.deepEqual(calls, [
+    ['bbo', 'cpc-btc-updown-15m-demo'],
+    ['book', 'cpc-btc-updown-15m-demo']
+  ]);
+  assert.equal(report.placed, 1);
+  assert.equal(report.results[0].code, 'pass');
+});
+
+test('a trade-time BBO older than 45s is still stale_bbo', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-btc-old-print',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-old',
+    side: 'Up',
+    limit_price: 0.7,
+    ask: 0.7,
+    model_prob: 0.76,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    bbo_at: new Date(Date.now() - 5_000).toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = {
+    async getBbo() {
+      return normalizedBbo({
+        bestBid: 0.69,
+        bestAsk: 0.7,
+        yesAsk: 0.7,
+        spread: 0.01,
+        sampledAt: freshSample(46_000),
+        observedAt: freshSample(46_000)
+      });
+    },
+    async getBook() {
+      return { asks: [{ price: 0.7, shares: 100 }], bids: [{ price: 0.69, shares: 100 }] };
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(report.results[0].code, 'stale_bbo');
+  assert.equal(report.placed, 0);
+});
+
+test('macro yes and no use book depth when liquidity_usd is null', async () => {
+  const { dir, config } = await fixture();
+  const calls = [];
+  const rows = [
+    {
+      id: 'macro:ewc-usse-ia-2026-11-03-dem:up',
+      sector: 'macro',
+      slug: 'ewc-usse-ia-2026-11-03-dem',
+      side: 'Up',
+      limit_price: 0.42,
+      ask: 0.42,
+      model_prob: 0.48,
+      liquidity_usd: null,
+      gates: { spread_cents: 1, liquidity_usd: null, depth_usd: null },
+      confidence: 'High',
+      resolution_risk: 'Low',
+      status: 'pending'
+    },
+    {
+      id: 'macro:ewc-usse-mi-2026-11-03-dem:down',
+      sector: 'macro',
+      slug: 'ewc-usse-mi-2026-11-03-dem',
+      side: 'Down',
+      limit_price: 0.32,
+      ask: 0.32,
+      model_prob: 0.4,
+      liquidity_usd: null,
+      gates: { spread_cents: 1, liquidity_usd: null },
+      confidence: 'High',
+      resolution_risk: 'Low',
+      status: 'pending'
+    }
+  ];
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), rows.map((row) => JSON.stringify(row)).join('\n') + '\n');
+  const gateway = {
+    async getBbo(slug) {
+      calls.push(slug);
+      if (slug.includes('-mi-')) {
+        return normalizedBbo({
+          bestBid: 0.68,
+          bestAsk: 0.69,
+          longQuote: 0.69,
+          shortQuote: 0.32,
+          yesAsk: 0.69,
+          noAsk: 0.32,
+          spread: 0.01,
+          askShares: 0,
+          bidShares: 0
+        });
+      }
+      return normalizedBbo({ askShares: 0, bidShares: 0 });
+    },
+    async getBook(slug) {
+      if (slug.includes('-mi-')) {
+        return { bids: [{ price: 0.68, shares: 82798 }], asks: [{ price: 0.69, shares: 1000 }] };
+      }
+      return {
+        asks: [{ price: 0.42, shares: 14000, size: 14000 }],
+        bids: [{ price: 0.41, shares: 15086 }]
+      };
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(calls.length, 2);
+  assert.equal(report.placed, 2);
+  assert.deepEqual(report.results.map((row) => row.code), ['pass', 'pass']);
+});
+
+test('an empty book with no BBO size still skips on depth', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-macro-empty',
+    sector: 'macro',
+    slug: 'ewc-empty',
+    side: 'Up',
+    limit_price: 0.42,
+    ask: 0.42,
+    model_prob: 0.5,
+    liquidity_usd: null,
+    gates: { spread_cents: 1, liquidity_usd: null, depth_usd: 80 },
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = {
+    async getBbo() {
+      return normalizedBbo({ askShares: 0, bidShares: 0 });
+    },
+    async getBook() {
+      return { asks: [], bids: [] };
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(report.results[0].code, 'depth');
+  assert.match(report.results[0].reason, /深度 0/);
+});
+
+test('a higher fresh ask is still price_ran_away', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-ran',
+    sector: 'macro',
+    slug: 'ewc-ran',
+    side: 'Yes',
+    limit_price: 0.4,
+    ask: 0.4,
+    model_prob: 0.5,
+    gates: { spread_cents: 1, depth_usd: 80 },
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = {
+    async getBbo() {
+      return normalizedBbo({ bestBid: 0.54, bestAsk: 0.55, yesAsk: 0.55, spread: 0.01 });
+    },
+    async getBook() {
+      return { asks: [{ price: 0.55, shares: 100 }], bids: [] };
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(report.results[0].code, 'price_ran_away');
+  assert.equal(report.placed, 0);
+});
+
+test('fetchQuotes false places from gates.depth_usd when liquidity_usd is null', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-offline-depth',
+    sector: 'macro',
+    slug: 'ewc-offline',
+    side: 'Yes',
+    limit_price: 0.42,
+    ask: 0.42,
+    model_prob: 0.48,
+    liquidity_usd: null,
+    gates: { spread_cents: 1, liquidity_usd: null, depth_usd: 80 },
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  let fetched = 0;
+  const gateway = {
+    async getBbo() {
+      fetched += 1;
+      throw new Error('should not fetch');
+    },
+    async getBook() {
+      fetched += 1;
+      throw new Error('should not fetch');
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway, fetchQuotes: false });
+  assert.equal(fetched, 0);
+  assert.equal(report.placed, 1);
 });

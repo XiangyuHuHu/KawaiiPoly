@@ -22,7 +22,7 @@ Polymarket 在这个仓库里分成两条线，结算来源不能混用。
 扫描器把待下单写到 `/workspace/polymarket-ledger/signals/pending.jsonl`（也认 `signals/{sector}-{timestamp}.json`、新鲜的 `candidates.jsonl`、`btc15-*/signal.json`）。
 
 ```bash
-npm run polymarket:us           # 读 SIGNAL，dry-run 或实盘下一轮
+npm run polymarket:us           # 下单前重拉 BBO/订单簿，再 dry-run 或实盘下一轮
 npm run polymarket:us:health    # 只看开关和上一轮 us-health.json
 npm run polymarket:us:smoke     # 不联网，走一遍门控并打印订单体
 npm run polymarket:us:account   # 只读余额 / 挂单 / 持仓，不下单

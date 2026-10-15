@@ -109,9 +109,12 @@ Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 
 ```bash
 npm run us:scan
+npm run polymarket:us
 npm run us:settle
 POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan
 ```
+
+`polymarket:us` 在决定下单前自己重新拉 BBO 和订单簿。BTC 错价的 45 秒按这次拉取时刻计算，不用扫描时留下的报价年龄。深度读订单簿该方向的价量；订单簿没有时再用 BBO 的份额。价差、edge、现金保留、仓位和日帽不变。
 
 国际纸面由 `POLYMARKET_INTL_PAPER_ENABLED` 控制，默认开。关掉后 `polymarket.enabled` 为 false，纸面 Plan 不再跑。美国站用 `POLYMARKET_US_ENABLED`，默认关；扫描脚本读的是网关公开行情，不依赖这个开关去下单。
 

@@ -3,7 +3,7 @@ import { buildPolymarketUsConfig, publicUsConfig } from './config.js';
 import { PolymarketUsGateway, quoteForSide } from './gateway.js';
 import { appendJsonl, ledgerPaths, readJsonl, writeJsonAtomic } from './ledger.js';
 import { loadUsSignals, persistSignalStatuses } from './signals.js';
-import { normalizeOutcomeSide, normalizeSector, readNumber, windowKey } from './shape.js';
+import { normalizeOutcomeSide, normalizeSector, readNumber, readPresentNumber, windowKey } from './shape.js';
 import {
   countSectorFills,
   evaluateUsSignal,
@@ -20,11 +20,19 @@ import {
   windowsFromPositions
 } from './trading.js';
 
+function parseExchangeTime(value) {
+  if (value == null || value === '') return null;
+  const text = String(value).trim();
+  const normalized = text.replace(/(\.\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/, '$1');
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function quoteFromSignal(signal) {
   const side = normalizeOutcomeSide(signal?.side);
   const ask = readNumber(signal?.ask, signal?.market_price, signal?.marketPrice);
   const spread = readNumber(signal?.spread);
-  const spreadCents = readNumber(signal?.spread_cents, signal?.spreadCents);
+  const spreadCents = readPresentNumber(signal?.spread_cents, signal?.spreadCents, signal?.gates?.spread_cents);
   const observedAt = signal?.bbo_at || signal?.bboAt || null;
   if (ask == null && spread == null && spreadCents == null && !observedAt) return null;
   return {
@@ -33,31 +41,81 @@ function quoteFromSignal(signal) {
     bestAsk: side === 'no' ? null : ask,
     spread: spread != null && spread >= 0 && spread <= 1 ? spread : (spreadCents == null ? null : spreadCents / 100),
     observedAt,
-    depthUsd: readNumber(signal?.liquidity_usd, signal?.liquidityUsd, signal?.depth_usd)
+    depthUsd: readPresentNumber(
+      signal?.depth_usd,
+      signal?.depthUsd,
+      signal?.gates?.depth_usd,
+      signal?.liquidity_usd,
+      signal?.liquidityUsd,
+      signal?.gates?.liquidity_usd
+    )
   };
 }
 
-async function resolveQuote(signal, { gateway, now, bboMaxAgeMs, fetchQuotes }) {
-  const local = quoteFromSignal(signal);
-  const observedMs = Date.parse(local?.observedAt || '');
-  const localFresh = Number.isFinite(observedMs) && now.getTime() - observedMs <= bboMaxAgeMs && now.getTime() - observedMs >= 0;
-  const sector = normalizeSector(signal?.sector);
-  if (fetchQuotes === false || (local && (sector !== 'btc_misprice' || localFresh))) return local;
-  if (!gateway || !signal?.slug) return local;
-  try {
-    const bbo = await gateway.getBbo(signal.slug);
-    const side = normalizeOutcomeSide(signal.side);
-    const ask = quoteForSide(bbo, side);
-    const shares = side === 'no' ? bbo.bidShares : bbo.askShares;
-    return {
-      ...bbo,
-      observedAt: bbo.observedAt || now.toISOString(),
-      depthUsd: shares != null && ask != null ? shares * ask : local?.depthUsd ?? null,
-      spread: bbo.spread ?? local?.spread ?? null
-    };
-  } catch (error) {
-    return local ? { ...local, quoteError: error.message } : { quoteError: error.message };
+function sideDepthUsd(bbo, book, side) {
+  const normalized = normalizeOutcomeSide(side);
+  if (normalized === 'no') {
+    const noAsk = quoteForSide(bbo, 'no');
+    const top = book?.bids?.[0];
+    if (top && noAsk != null && Number(top.shares) > 0) return Number(top.shares) * noAsk;
+    const shares = readPresentNumber(bbo?.bidShares);
+    if (shares != null && shares > 0 && noAsk != null) return shares * noAsk;
+    return book ? 0 : null;
   }
+  const top = book?.asks?.[0];
+  if (top && Number(top.price) > 0 && Number(top.shares) > 0) return Number(top.price) * Number(top.shares);
+  const yesAsk = quoteForSide(bbo, 'yes');
+  const shares = readPresentNumber(bbo?.askShares);
+  if (shares != null && shares > 0 && yesAsk != null) return shares * yesAsk;
+  return book ? 0 : null;
+}
+
+function tradeObservedAt(sampledAt, fetchedAt) {
+  const fetchedMs = fetchedAt.getTime();
+  const sampledMs = parseExchangeTime(sampledAt);
+  if (sampledMs == null) return fetchedAt.toISOString();
+  const ahead = sampledMs - fetchedMs;
+  if (ahead > 0 && ahead <= 2_000) return fetchedAt.toISOString();
+  return new Date(sampledMs).toISOString();
+}
+
+async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
+  const local = quoteFromSignal(signal);
+  if (fetchQuotes === false || !gateway || !signal?.slug) {
+    return { quote: local, bboAsOf: now };
+  }
+  const fetchedAt = new Date();
+  let bbo = null;
+  let quoteError = null;
+  try {
+    bbo = await gateway.getBbo(signal.slug);
+  } catch (error) {
+    quoteError = error.message;
+  }
+  if (!bbo) {
+    return {
+      quote: local ? { ...local, quoteError } : { quoteError },
+      bboAsOf: now
+    };
+  }
+  let book = null;
+  if (typeof gateway.getBook === 'function') {
+    try {
+      book = await gateway.getBook(signal.slug);
+    } catch {
+      book = null;
+    }
+  }
+  const depthUsd = sideDepthUsd(bbo, book, signal.side);
+  return {
+    quote: {
+      ...bbo,
+      observedAt: tradeObservedAt(bbo.sampledAt || bbo.observedAt, fetchedAt),
+      depthUsd: depthUsd != null ? depthUsd : (local?.depthUsd ?? null),
+      spread: bbo.spread ?? local?.spread ?? null
+    },
+    bboAsOf: fetchedAt
+  };
 }
 
 function windowsFromOrders(orders) {
@@ -125,15 +183,16 @@ export async function runPolymarketUsCycle(options = {}) {
 
   const results = [];
   for (const signal of loaded.signals) {
-    const quote = await resolveQuote(signal, {
+    const resolved = await resolveQuote(signal, {
       gateway,
       now,
-      bboMaxAgeMs: config.bboMaxAgeMs,
       fetchQuotes: options.fetchQuotes
     });
+    const quote = resolved.quote;
     const decision = evaluateUsSignal(signal, {
       now,
       quote,
+      bboAsOf: resolved.bboAsOf,
       stats,
       dailyCounts,
       openWindows,
