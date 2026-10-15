@@ -24,7 +24,7 @@ import { evaluatePlan15Candidate } from './src/polymarketPlan15.js';
 import { parsePlan16Question, selectPlan16Buys, ensembleYesProbability } from './src/polymarketPlan16.js';
 import { stationFromDescription } from './src/plan16Stations.js';
 import { fetchPlan16Ensemble } from './src/plan16Forecast.js';
-import { PLAN17_COINS, parsePlan17Market, plan17IvSkipReason, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
+import { PLAN17_COINS, plan17MarketDataSkipReason, createPlan17FailureLogger, parsePlan17Market, plan17IvSkipReason, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
 import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
 import {
@@ -4891,6 +4891,8 @@ function plan17EventSlugs(nowMs = Date.now()) {
   return slugs;
 }
 
+const logPlan17DataFailure = createPlan17FailureLogger();
+
 async function runPlan17PaperScan() {
   if (plan17ScanRunning || config.polymarket.plan17Enabled === false) return { bought: 0 };
   if (config.polymarket.plan17NewEntriesEnabled !== true) return { bought: 0 };
@@ -4938,8 +4940,18 @@ async function runPlan17PaperScan() {
         dataByCoin[coin] = { ...iv, ...spot };
       } catch (error) {
         dataByCoin[coin] = { ivSkipReason: error.reason || 'missing_market_data' };
-        console.error(`Plan17 market data ${coin} failed: ${error.message}`);
+        logPlan17DataFailure(`${coin}: ${error.message}`);
       }
+    }
+    const failedData = Object.entries(dataByCoin).map(([coin, data]) => {
+      const reason = plan17MarketDataSkipReason(data, Date.now(), pm.plan17MaxIvAgeMs);
+      return reason ? `${coin}: ${reason}` : null;
+    }).filter(Boolean);
+    if (failedData.length) {
+      const reason = `market data unavailable; entries paused: ${failedData.join(' · ')}`;
+      logPlan17DataFailure(reason);
+      await polymarketTrading.notePlan17Scan({ reason, bought: 0 });
+      return { bought: 0, reason };
     }
     const tokenIds = rows.flatMap((row) => asJsonList(row.market.clobTokenIds).map(String));
     const books = tokenIds.length

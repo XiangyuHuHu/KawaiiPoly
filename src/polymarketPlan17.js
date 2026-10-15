@@ -35,6 +35,23 @@ function finite(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+export function plan17MarketDataSkipReason(data, nowMs, maxIvAgeMs) {
+  if (data?.marketDataError) return 'missing_market_data';
+  const ivReason = plan17IvSkipReason(data, nowMs, maxIvAgeMs);
+  if (ivReason) return ivReason;
+  if (!(Number.isFinite(data?.spot) && data.spot > 0)) return 'missing_market_data';
+  return null;
+}
+
+export function createPlan17FailureLogger({ log = console.warn, intervalMs = 300_000 } = {}) {
+  let lastMs = -Infinity;
+  return (reason, nowMs = Date.now()) => {
+    if (nowMs - lastMs < intervalMs) return;
+    lastMs = nowMs;
+    log(`Plan17 entries skipped: ${reason}`);
+  };
+}
+
 export function plan17IvSkipReason(data, nowMs, maxIvAgeMs = PLAN17_DEFAULTS.maxIvAgeMs) {
   if (data?.ivSkipReason) return data.ivSkipReason;
   if (!(Number.isFinite(data?.iv) && data.iv > 0)) return 'iv_missing';
@@ -142,8 +159,9 @@ export function evaluatePlan17Row({
   const minutesLeft = (parsed.endMs - nowMs) / 60_000;
   if (minutesLeft < cfg.minMinutesLeft) return { ok: false, reason: 'too_close' };
   if (minutesLeft / 60 > (cfg.maxHoursLeft?.[parsed.family] ?? 24)) return { ok: false, reason: 'too_far' };
-  const ivReason = plan17IvSkipReason(data, nowMs, cfg.maxIvAgeMs);
+  const ivReason = plan17MarketDataSkipReason(data, nowMs, cfg.maxIvAgeMs);
   if (ivReason) return { ok: false, reason: ivReason };
+  if (parsed.family === 'hitDaily' && !(Number.isFinite(data?.high) && data.high > 0 && Number.isFinite(data?.low) && data.low > 0)) return { ok: false, reason: 'missing_market_data' };
   const spot = finite(data?.spot); const iv = finite(data?.iv);
   if (!(spot > 0) || !(iv > 0)) return { ok: false, reason: 'missing_market_data' };
   if (parsed.type === 'up' && finite(data?.high) != null && data.high >= parsed.strike) return { ok: false, reason: 'already_touched' };

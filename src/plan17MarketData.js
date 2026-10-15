@@ -49,19 +49,24 @@ export async function fetchPlan17Dvol(currency, nowMs = Date.now(), {
 export async function fetchPlan17Spot(symbol, fromMs = null, nowMs = Date.now()) {
   const ticker = await binance(`/api/v3/ticker/price?symbol=${symbol}`);
   const spot = Number(ticker?.price);
+  if (!(spot > 0 && Number.isFinite(spot))) throw Object.assign(new Error(`Invalid spot for ${symbol}`), { reason: 'missing_market_data' });
   let high = null; let low = null;
   if (Number.isFinite(fromMs) && fromMs < nowMs) {
     let cursor = Math.floor(fromMs / 60_000) * 60_000;
     for (let page = 0; page < 3 && cursor < nowMs; page += 1) {
       const rows = await binance(`/api/v3/klines?symbol=${symbol}&interval=1m&startTime=${cursor}&limit=1000`);
-      if (!rows?.length) break;
+      if (!Array.isArray(rows) || !rows.length) throw Object.assign(new Error(`Missing candles for ${symbol}`), { reason: 'missing_market_data' });
       for (const row of rows) {
         const h = Number(row[2]); const l = Number(row[3]);
+        if (!(Number.isFinite(h) && Number.isFinite(l) && h > 0 && l > 0 && h >= l)) throw Object.assign(new Error(`Invalid candles for ${symbol}`), { reason: 'missing_market_data' });
         if (high == null || h > high) high = h;
         if (low == null || l < low) low = l;
       }
-      cursor = rows.at(-1)[0] + 60_000;
+      const nextCursor = Number(rows.at(-1)?.[0]) + 60_000;
+      if (!Number.isFinite(nextCursor) || nextCursor <= cursor) throw Object.assign(new Error(`Invalid candle timestamps for ${symbol}`), { reason: 'missing_market_data' });
+      cursor = nextCursor;
     }
+    if (cursor < nowMs - 60_000) throw Object.assign(new Error(`Incomplete candles for ${symbol}`), { reason: 'missing_market_data' });
   }
   return { spot, high, low };
 }

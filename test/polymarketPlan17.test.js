@@ -108,7 +108,7 @@ test('caps buys per event and skips held markets', () => {
 });
 
 test('entry selection rejects missing, invalid and stale IV timestamps with configurable age', () => {
-  const row = { event: HIT_EVENT, market: market(), data: { spot: 84000, iv: 45, ivTimestampMs: NOW }, yesBook: book(0.04, 0.05), noBook: book(0.95, 0.96) };
+  const row = { event: HIT_EVENT, market: market(), data: { spot: 84000, iv: 45, ivTimestampMs: NOW, high: 84500, low: 83000 }, yesBook: book(0.04, 0.05), noBook: book(0.95, 0.96) };
   const evaluate = (data, options = {}) => evaluatePlan17Row({ ...row, data, nowMs: NOW, ...options });
   assert.equal(evaluate({ ...row.data, ivTimestampMs: NOW - 300000 }).ok, true);
   const stale = { ...row.data, ivTimestampMs: NOW - 300001 };
@@ -120,4 +120,19 @@ test('entry selection rejects missing, invalid and stale IV timestamps with conf
   assert.equal(evaluate({ spot: 84000 }).reason, 'iv_missing');
   assert.equal(evaluate({ ...row.data, ivSkipReason: 'iv_unavailable' }).reason, 'iv_unavailable');
   assert.deepEqual(selectPlan17Buys({ rows: [{ ...row, data: stale }], nowMs: NOW }), []);
+});
+
+
+test('market data failures block entries and logging is rate limited', async () => {
+  const { plan17MarketDataSkipReason, createPlan17FailureLogger } = await import('../src/polymarketPlan17.js');
+  const healthy = { spot: 84000, iv: 45, ivTimestampMs: NOW, high: 84500, low: 83000 };
+  assert.equal(plan17MarketDataSkipReason(healthy, NOW), null);
+  assert.equal(plan17MarketDataSkipReason({ ...healthy, marketDataError: '451' }, NOW), 'missing_market_data');
+  for (const data of [null, { ...healthy, spot: NaN }, { ...healthy, high: null }, { ...healthy, ivSkipReason: 'missing_market_data' }]) {
+    assert.deepEqual(selectPlan17Buys({ rows: [{ event: HIT_EVENT, market: market(), data, yesBook: book(.04,.05) }], nowMs: NOW }), []);
+  }
+  const messages = [];
+  const log = createPlan17FailureLogger({ log: s => messages.push(s), intervalMs: 1000 });
+  log('451', NOW); log('451', NOW+999); log('451', NOW+1000);
+  assert.equal(messages.length, 2);
 });

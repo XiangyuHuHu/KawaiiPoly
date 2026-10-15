@@ -56,3 +56,16 @@ test('Deribit retries errors with bounded exponential backoff and never uses pre
   assert.equal(calls, 3);
   assert.deepEqual(delays, [250, 500]);
 });
+
+test('spot fetch fails closed on HTTP 451, malformed ticker and missing history', async () => {
+  const { fetchPlan17Spot } = await import('../src/plan17MarketData.js');
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 451 });
+    await assert.rejects(fetchPlan17Spot('BTCUSDT'), /451/);
+    globalThis.fetch = async () => ({ ok: true, json: async () => ({ price: 'NaN' }) });
+    await assert.rejects(fetchPlan17Spot('BTCUSDT'), /Invalid spot/);
+    globalThis.fetch = async url => ({ ok: true, json: async () => String(url).includes('ticker') ? { price: '80000' } : [] });
+    await assert.rejects(fetchPlan17Spot('BTCUSDT', 60000, 120000), /Missing candles/);
+  } finally { globalThis.fetch = original; }
+});
