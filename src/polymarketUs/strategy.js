@@ -33,6 +33,7 @@ import {
   normalizeOutcomeSide,
   normalizeSector,
   readNumber,
+  readPresentNumber,
   signalIdentity,
   tradingSlug,
   windowKey
@@ -199,14 +200,17 @@ function readSpread(signal, quote) {
 }
 
 function readDepthUsd(signal, quote, price) {
-  if (quote && Number.isFinite(quote.depthUsd)) return quote.depthUsd;
-  if (quote && Number.isFinite(quote.askShares) && price > 0) return quote.askShares * price;
-  return readNumber(
+  const quoted = readPresentNumber(quote?.depthUsd);
+  if (quoted != null) return quoted;
+  const shares = readPresentNumber(quote?.askShares);
+  if (shares != null && shares > 0 && price > 0) return shares * price;
+  return readPresentNumber(
+    signal?.depth_usd,
+    signal?.depthUsd,
+    signal?.gates?.depth_usd,
     signal?.liquidity_usd,
     signal?.liquidityUsd,
-    signal?.depth_usd,
-    signal?.gates?.liquidity_usd,
-    signal?.gates?.depth_usd
+    signal?.gates?.liquidity_usd
   );
 }
 
@@ -312,8 +316,13 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'missing_price', '没有可用限价。', { ...base, status: 'skipped' });
   }
 
+  // 年龄对着下单时刻（bboAsOf），不是扫描开始时冻结的 now。门槛仍是 45 秒。
+  const asOf = context.bboAsOf instanceof Date
+    ? context.bboAsOf
+    : new Date(context.bboAsOf || now);
+  const asOfMs = Number.isFinite(asOf.getTime()) ? asOf.getTime() : now.getTime();
   const bboAt = Date.parse(quote?.observedAt || signal?.bbo_at || signal?.bboAt || '');
-  const bboAge = Number.isFinite(bboAt) ? now.getTime() - bboAt : null;
+  const bboAge = Number.isFinite(bboAt) ? asOfMs - bboAt : null;
   // 与 US_BBO_MAX_AGE_MS / rules.edge.bboMaxAgeMs 同一常量（BTC 错价 BBO 不超过 45 秒）。
   const bboFresh = bboAge != null && bboAge >= 0 && bboAge <= (context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS);
   if (sector === 'btc_misprice' && !bboFresh) {

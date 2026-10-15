@@ -190,6 +190,55 @@ test('cash reserve blocks a live-sized order that would leave less than $15', ()
   assert.equal(ok.action, 'place');
 });
 
+test('null liquidity does not hide a real depth, and a quoted zero still blocks', () => {
+  const fromGates = place({
+    liquidity_usd: null,
+    gates: { liquidity_usd: null, depth_usd: 80, spread_cents: 1 }
+  });
+  assert.equal(fromGates.action, 'place');
+  const empty = place({}, {
+    quote: {
+      yesAsk: 0.4,
+      spread: 0.01,
+      depthUsd: 0,
+      observedAt: WED_OPEN.toISOString()
+    }
+  });
+  assert.equal(empty.code, 'depth');
+});
+
+test('BTC age is measured against the trade-time clock, not the scan timestamp', () => {
+  const asOf = WED_OPEN;
+  const fresh = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    bbo_at: new Date(asOf.getTime() - 120_000).toISOString()
+  }, {
+    bboAsOf: asOf,
+    quote: {
+      yesAsk: 0.4,
+      spread: 0.01,
+      depthUsd: 50,
+      observedAt: new Date(asOf.getTime() - 30_000).toISOString()
+    }
+  });
+  assert.equal(fresh.action, 'place');
+  const stale = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    bbo_at: asOf.toISOString()
+  }, {
+    bboAsOf: asOf,
+    quote: {
+      yesAsk: 0.4,
+      spread: 0.01,
+      depthUsd: 50,
+      observedAt: new Date(asOf.getTime() - 46_000).toISOString()
+    }
+  });
+  assert.equal(stale.code, 'stale_bbo');
+});
+
 test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88 cap', () => {
   const stale = place({
     sector: 'btc_misprice',
