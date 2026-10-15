@@ -38,6 +38,11 @@ if (command === 'settle') {
   });
   const ids = result.signals.map((signal) => signal.id).join(',');
   const session = result.session?.label ? ` session=${result.session.label}` : '';
+  for (const event of result.brakeEvents || []) {
+    if (event.event === 'pause') {
+      console.log(`sector-brake sector=${event.sector} until=${event.pausedUntil} wins=${event.wins} pnl=${event.pnlUsd}`);
+    }
+  }
   console.log(`us-scan signals=${result.published} reason=${result.reason}${session}${ids ? ` id=${ids}` : ''}`);
 } else {
   console.error('usage: node scripts/us-scan.js [scan|settle]');

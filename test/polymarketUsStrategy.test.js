@@ -254,8 +254,26 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
   assert.equal(within45s.action, 'place');
   const thin = place({ sector: 'btc_misprice', model_prob: 0.43, edge: 0.03 });
   assert.equal(thin.code, 'edge');
-  const fourPp = place({ sector: 'btc_misprice', model_prob: 0.44, edge: 0.04 });
-  assert.equal(fourPp.action, 'place');
+  const rawFourPp = place({ sector: 'btc_misprice', model_prob: 0.44, bid: 0.39 });
+  assert.equal(rawFourPp.code, 'edge');
+  const blended = place({
+    sector: 'btc_misprice',
+    model_prob: 0.64,
+    ask: 0.55,
+    limit_price: 0.55,
+    bid: 0.54
+  });
+  assert.equal(blended.action, 'place');
+  assert.equal(blended.pUsed, 0.5925);
+  assert.equal(blended.edge, 0.0425);
+  const longshot = place({
+    sector: 'btc_misprice',
+    model_prob: 0.8,
+    ask: 0.21,
+    limit_price: 0.21,
+    bid: 0.2
+  });
+  assert.equal(longshot.code, 'price_band');
   const momentum = place({
     sector: 'momentum',
     limit_price: 0.9,

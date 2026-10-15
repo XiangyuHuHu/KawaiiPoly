@@ -5,7 +5,13 @@
  * The bot may send the limit order without another chat confirmation.
  */
 
-import { US_BBO_MAX_AGE_MS, US_EDGE_BTC_MISPRICE } from './constants.js';
+import {
+  US_BBO_MAX_AGE_MS,
+  US_BTC_MISPRICE_MAX_PRICE,
+  US_BTC_MISPRICE_MIN_PRICE,
+  US_BTC_MISPRICE_MODEL_WEIGHT,
+  US_EDGE_BTC_MISPRICE
+} from './constants.js';
 
 export const US_SPEC_VERSION = '3.2';
 
@@ -31,6 +37,9 @@ export const US_RULES = Object.freeze({
     nonBtcNonLive: 0.03,
     // 与 constants.US_EDGE_BTC_MISPRICE 同一常量。只覆盖 BTC 15m / 1h 错价。
     btcMisprice: US_EDGE_BTC_MISPRICE,
+    btcMispriceModelWeight: US_BTC_MISPRICE_MODEL_WEIGHT,
+    btcMispriceMinPrice: US_BTC_MISPRICE_MIN_PRICE,
+    btcMispriceMaxPrice: US_BTC_MISPRICE_MAX_PRICE,
     btcMispriceRequiresFreshBbo: true,
     // 与 constants.US_BBO_MAX_AGE_MS 同一常量。BTC 错价 BBO 不超过 45 秒。
     bboMaxAgeMs: US_BBO_MAX_AGE_MS,

@@ -1,3 +1,4 @@
+import { syncSectorBrakes } from './calibration.js';
 import { US_BTC_SHORT_RESOLUTION, US_COUNTED_FILL_STATUSES, US_SPEC_VERSION } from './constants.js';
 import { buildPolymarketUsConfig, publicUsConfig } from './config.js';
 import { PolymarketUsGateway, quoteForSide } from './gateway.js';
@@ -161,6 +162,7 @@ export async function runPolymarketUsCycle(options = {}) {
   });
   const paths = ledgerPaths(config.ledgerDir);
   const orders = await readJsonl(paths.realOrders);
+  const brakes = await syncSectorBrakes(config.ledgerDir, now);
   const parts = pacificParts(now);
   const realIds = orders.filter(isRealFill).map((order) => order.signal_id).filter(Boolean);
   const dryIds = orders.filter((order) => order.dry_run).map((order) => order.signal_id).filter(Boolean);
@@ -200,6 +202,7 @@ export async function runPolymarketUsCycle(options = {}) {
       realIds,
       dryIds,
       dryRun: config.dryRun,
+      sectorPauses: brakes.paused,
       bboMaxAgeMs: config.bboMaxAgeMs,
       scheduleWindowMinutes: config.scheduleWindowMinutes,
       cashReserveUsd: config.cashReserveUsd
@@ -227,6 +230,10 @@ export async function runPolymarketUsCycle(options = {}) {
         basis: decision.basis,
         edge: decision.edge,
         model_prob: decision.model_prob,
+        model_p: decision.modelP ?? decision.model_prob ?? null,
+        market_p: decision.marketP ?? null,
+        p_used: decision.pUsed ?? decision.model_prob ?? null,
+        entry: decision.limitPrice,
         order_payload: decision.order,
         window_id: windowKey(signal),
         resolution_source: decision.sector === 'btc_misprice' || decision.sector === 'momentum'
@@ -276,6 +283,8 @@ export async function runPolymarketUsCycle(options = {}) {
     pacificDate: parts.dateKey,
     account,
     schedule: results[0]?.schedule || null,
+    brakeEvents: brakes.events,
+    sectorPauses: brakes.paused,
     placed: results.filter((row) => row.action === 'place').length,
     skipped: results.filter((row) => row.action === 'skip').length,
     deferred: results.filter((row) => row.action === 'defer').length,

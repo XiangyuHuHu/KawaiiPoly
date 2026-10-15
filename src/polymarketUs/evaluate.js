@@ -1,3 +1,4 @@
+import { blendModelToMarket, marketProbability, round4 as roundProb } from './calibration.js';
 import { eventUrl } from './gateway.js';
 import { cleanerEdgeFloor, US_RULES, US_SPEC_VERSION } from './rules.js';
 import { normalizeSector } from './shape.js';
@@ -165,7 +166,17 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     }
   }
 
-  if (sector === 'momentum') {
+  const marketP = marketProbability({ side: input.side, ask, bid });
+  let pUsed = modelProb;
+  let pricedEdge = round4(modelProb - ask);
+  if (sector === 'btc-misprice') {
+    const minPx = rules.edge.btcMispriceMinPrice;
+    const maxPx = rules.edge.btcMispriceMaxPrice;
+    if (ask + 1e-12 < minPx || ask - 1e-12 > maxPx) return reject('price-band');
+    pUsed = blendModelToMarket(modelProb, marketP, rules.edge.btcMispriceModelWeight).pUsed;
+    pricedEdge = round4(pUsed - ask);
+    if (pricedEdge + 1e-12 < minEdgeFor(sector, { weak: sizing.weak }, rules)) return reject('edge');
+  } else if (sector === 'momentum') {
     if (ask - rules.edge.momentumPriceCap > 1e-9) return reject('momentum-price-cap');
     const distance = finite(input.distanceBps);
     const needed = sizing.weak ? rules.edge.momentumOriginalDistanceBps : rules.edge.momentumDistanceBps;
@@ -214,7 +225,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const slug = String(input.slug || '');
   if (!slug) return reject('slug');
   const side = displaySide(input.side, input.timeframe);
-  const edge = round4(modelProb - ask);
+  const edge = sector === 'btc-misprice' ? pricedEdge : round4(modelProb - ask);
   const id = `${writtenSector}:${slug}:${polarity}`;
   const signal = {
     spec_version: US_SPEC_VERSION,
@@ -229,6 +240,9 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     size_usd: sizing.usd,
     edge,
     model_prob: round4(modelProb),
+    model_p: roundProb(modelProb),
+    market_p: roundProb(marketP),
+    p_used: roundProb(sector === 'btc-misprice' ? pUsed : modelProb),
     ask: round4(ask),
     expires_at: input.expiresAt,
     basis: input.basis || '',

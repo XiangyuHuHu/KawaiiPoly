@@ -26,6 +26,7 @@ export function usPaths(ledgerRoot = defaultLedgerRoot(), workspaceRoot = defaul
     status: join(ledgerRoot, 'status'),
     picks: join(ledgerRoot, 'picks.jsonl'),
     realOrders: join(ledgerRoot, 'real-orders.jsonl'),
+    calibration: join(ledgerRoot, 'calibration.jsonl'),
     momentumTrials: join(ledgerRoot, 'momentum-trial.jsonl'),
     account: join(ledgerRoot, 'account.json'),
     modelInput: join(ledgerRoot, 'model-input.jsonl'),
