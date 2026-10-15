@@ -72,10 +72,12 @@ function inClockRange(minuteOfDay, start, end) {
   return minuteOfDay >= from && minuteOfDay < to;
 }
 
-function sessionLabel({ weekend, longDated, weekdaySession, btcShortDense }) {
+function sessionLabel({ weekend, longDated, weekdaySession, btcShortDense, fullSuite }) {
   if (weekend) return 'weekend-full';
   if (longDated && weekdaySession) return `weekday-${weekdaySession}-plus-longdated`;
   if (weekdaySession) return `weekday-${weekdaySession}-full`;
+  if (fullSuite && longDated) return 'weekday-full-plus-longdated';
+  if (fullSuite) return 'weekday-full';
   if (btcShortDense && longDated) return 'weekday-btc-dense-plus-longdated';
   if (btcShortDense) return 'weekday-btc-dense';
   if (longDated) return 'monday-longdated';
@@ -83,10 +85,10 @@ function sessionLabel({ weekend, longDated, weekdaySession, btcShortDense }) {
 }
 
 /**
- * Weekend: full suite all day.
- * Weekday 08:37/12:37/18:37 PT: full suite (every sector) plus BTC short.
- * Weekday daytime dense window: BTC 15m/1h misprice and 15m momentum only.
- * Monday 08:50: long-dated crypto/master, including the overlap with the morning suite.
+ * Full suite (every sector) runs every loop, any day, when schedule.fullSuiteEveryLoop is on.
+ * Weekday 08:37/12:37/18:37 PT stay labeled as the original named windows.
+ * Weekday BTC 15m/1h misprice and 15m momentum are dense 00:00–24:00 PT.
+ * Monday 08:50 still marks long-dated crypto/master.
  */
 export function describeSession(now = new Date(), rules) {
   const parts = ptParts(now);
@@ -101,6 +103,8 @@ export function describeSession(now = new Date(), rules) {
   const btcShortDense = !weekend && dense
     ? inClockRange(minuteOfDay, dense.start, dense.end)
     : false;
+  const fullSuiteEveryLoop = rules.schedule.fullSuiteEveryLoop !== false;
+  const fullSuite = fullSuiteEveryLoop || weekend || Boolean(weekdaySession);
   return {
     timeZone: rules.schedule.timeZone,
     ptDate: ptDateKey(now),
@@ -109,9 +113,9 @@ export function describeSession(now = new Date(), rules) {
     weekdaySession,
     longDated,
     btcShortDense,
-    btcShort: weekend || Boolean(weekdaySession) || btcShortDense,
-    fullSuite: weekend || Boolean(weekdaySession),
-    label: sessionLabel({ weekend, longDated, weekdaySession, btcShortDense })
+    btcShort: fullSuite || btcShortDense,
+    fullSuite,
+    label: sessionLabel({ weekend, longDated, weekdaySession, btcShortDense, fullSuite })
   };
 }
 

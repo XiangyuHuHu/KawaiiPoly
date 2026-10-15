@@ -417,7 +417,8 @@ export async function runUsScan({
             skipped.push(`${model.sector}:missing-us-price`);
             continue;
           }
-          throw error;
+          skipped.push(`${model.sector}:quote`);
+          continue;
         }
       }
       if (model.ask == null) {

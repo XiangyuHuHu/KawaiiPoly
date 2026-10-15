@@ -59,9 +59,16 @@ function assertNoSecrets(value) {
   if (keys.length) throw new Error(`refusing to write secret-like fields: ${keys.join(',')}`);
 }
 
+function datedStamp(value) {
+  if (value == null || value === '') return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function signalStamp(signal) {
-  const when = signal?.window_id || signal?.expires_at;
-  return formatWindowStamp(when || new Date());
+  // 非 BTC 的 window_id 经常是 slug，不是时间。解析失败就用到期时间，再不行用现在。
+  const when = datedStamp(signal?.window_id) || datedStamp(signal?.expires_at) || new Date();
+  return formatWindowStamp(when);
 }
 
 export function sectorSignalPath(ledgerRoot, signal) {
