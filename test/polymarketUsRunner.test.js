@@ -215,9 +215,9 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
     sector: 'btc_misprice',
     slug: 'cpc-btc-updown-15m-demo',
     side: 'Up',
-    limit_price: 0.7,
-    ask: 0.7,
-    model_prob: 0.76,
+    limit_price: 0.5,
+    ask: 0.5,
+    model_prob: 0.7,
     spread_cents: 1,
     gates: { spread_cents: 1, liquidity_usd: null, depth_usd: 40 },
     bbo_at: new Date(Date.now() - 120_000).toISOString(),
@@ -229,12 +229,12 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
     async getBbo(slug) {
       calls.push(['bbo', slug]);
       return normalizedBbo({
-        bestBid: 0.69,
-        bestAsk: 0.7,
-        longQuote: 0.7,
-        shortQuote: 0.31,
-        yesAsk: 0.7,
-        noAsk: 0.31,
+        bestBid: 0.49,
+        bestAsk: 0.5,
+        longQuote: 0.5,
+        shortQuote: 0.51,
+        yesAsk: 0.5,
+        noAsk: 0.51,
         spread: 0.01
       });
     },
@@ -252,6 +252,11 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
   ]);
   assert.equal(report.placed, 1);
   assert.equal(report.results[0].code, 'pass');
+  const row = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
+  assert.equal(row.model_p, 0.7);
+  assert.equal(row.market_p, 0.495);
+  assert.equal(row.p_used, 0.5975);
+  assert.equal(row.entry, 0.5);
 });
 
 test('a trade-time BBO older than 45s is still stale_bbo', async () => {
@@ -261,9 +266,9 @@ test('a trade-time BBO older than 45s is still stale_bbo', async () => {
     sector: 'btc_misprice',
     slug: 'cpc-btc-updown-15m-old',
     side: 'Up',
-    limit_price: 0.7,
-    ask: 0.7,
-    model_prob: 0.76,
+    limit_price: 0.5,
+    ask: 0.5,
+    model_prob: 0.7,
     gates: { spread_cents: 1, depth_usd: 40 },
     bbo_at: new Date(Date.now() - 5_000).toISOString(),
     confidence: 'High',
@@ -273,9 +278,9 @@ test('a trade-time BBO older than 45s is still stale_bbo', async () => {
   const gateway = {
     async getBbo() {
       return normalizedBbo({
-        bestBid: 0.69,
-        bestAsk: 0.7,
-        yesAsk: 0.7,
+        bestBid: 0.49,
+        bestAsk: 0.5,
+        yesAsk: 0.5,
         spread: 0.01,
         sampledAt: freshSample(46_000),
         observedAt: freshSample(46_000)

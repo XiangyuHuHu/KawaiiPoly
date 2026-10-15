@@ -162,7 +162,7 @@ test('btc misprice sector keys normalize before win-rate and daily fills', async
       slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
       side: 'Up',
       timeframe: '15m',
-      modelProb: 0.62,
+      modelProb: 0.70,
       ask: 0.55,
       bid: 0.54,
       city: null,
@@ -218,7 +218,7 @@ test('cold edge and BBO age are the same for scan and trade', () => {
     slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
     side: 'Up',
     timeframe: '15m',
-    modelProb: 0.62,
+    modelProb: 0.70,
     ask: 0.55,
     bid: 0.54,
     city: null,
@@ -239,7 +239,8 @@ test('cold edge and BBO age are the same for scan and trade', () => {
     side: 'Up',
     limit_price: 0.55,
     ask: 0.55,
-    model_prob: 0.62,
+    model_prob: 0.70,
+    bid: 0.54,
     spread_cents: 1,
     liquidity_usd: 80,
     confidence: 'High',
@@ -269,13 +270,17 @@ test('cold edge and BBO age are the same for scan and trade', () => {
       limit_price: 0.55,
       bbo_at: withinOldWindow
     };
-    assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.59 })).ok, true);
-    assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.58 })).reason, 'edge');
-    assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.59 })).action, 'place');
-    assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.58 })).code, 'edge');
+    assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.64 })).ok, true);
+    assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.56 })).reason, 'edge');
+    assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.64, bid: 0.54 })).action, 'place');
+    assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.56, bid: 0.54 })).code, 'edge');
     assert.equal(
-      evaluateScan(scanInput({ ...scanEdge, modelProb: 0.59 })).signal.edge,
-      0.04
+      evaluateScan(scanInput({ ...scanEdge, modelProb: 0.64 })).signal.edge,
+      0.0425
+    );
+    assert.equal(
+      trade(tradeSignal({ ...tradeEdge, model_prob: 0.64, bid: 0.54 })).edge,
+      0.0425
     );
   }
 

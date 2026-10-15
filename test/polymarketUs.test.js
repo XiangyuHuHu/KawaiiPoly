@@ -22,7 +22,7 @@ function passing(overrides = {}) {
     sector: 'btc-misprice',
     side: 'Up',
     slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
-    modelProb: 0.62,
+    modelProb: 0.70,
     ask: 0.55,
     bid: 0.54,
     spreadCents: 1,
@@ -133,7 +133,10 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
   assert.equal(signal.signal.size_usd, 2);
-  assert.equal(signal.signal.edge, 0.07);
+  assert.equal(signal.signal.edge, 0.0725);
+  assert.equal(signal.signal.model_p, 0.7);
+  assert.equal(signal.signal.market_p, 0.545);
+  assert.equal(signal.signal.p_used, 0.6225);
   assert.equal(signal.signal.spec_version, '3.2');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
@@ -148,9 +151,20 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(evaluateUsSignal(passing({ confidence: 'Low' })).reason, 'confidence');
   assert.equal(evaluateUsSignal(passing({
     confidence: 0.54,
-    modelProb: 0.55,
-    ask: 0.50
+    modelProb: 0.60,
+    ask: 0.50,
+    bid: 0.49
   })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.52,
+    ask: 0.21,
+    bid: 0.20
+  })).reason, 'price-band');
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.56,
+    ask: 0.52,
+    bid: 0.51
+  })).reason, 'edge');
   assert.equal(evaluateUsSignal(passing({
     confidence: 0,
     modelProb: 0.70,
@@ -158,8 +172,9 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   })).reason, 'confidence');
   assert.equal(evaluateUsSignal(passing({
     confidence: undefined,
-    modelProb: 0.52,
-    ask: 0.47
+    modelProb: 0.60,
+    ask: 0.50,
+    bid: 0.49
   })).ok, true);
   assert.equal(evaluateUsSignal(passing({ spreadCents: 4 })).reason, 'spread');
   assert.equal(evaluateUsSignal(passing({ liquidityUsd: null })).ok, true);
@@ -458,7 +473,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       ...context,
       signal: {
         confidence: 0.54,
-        probabilities: { up: 0.55 },
+        probabilities: { up: 0.60 },
         indicators: { bodyPct: 0.0005 }
       },
       bbo: { ...context.bbo, bestAsk: 0.50, longAsk: 0.50, bestBid: 0.49, shortAsk: 0.51 },
@@ -471,7 +486,23 @@ test('session scan writes one US signal and skips the opposite momentum', async 
     assert.equal(modest.signals.length, 1);
     assert.equal(modest.signals[0].sector, 'btc_misprice');
     assert.equal(modest.signals[0].confidence, 'Med');
-    assert.equal(modest.signals[0].edge, 0.05);
+    assert.equal(modest.signals[0].edge, 0.0475);
+    const coinFlip = btcCandidatesFromContext({
+      ...context,
+      signal: {
+        confidence: 0.54,
+        probabilities: { up: 0.55 },
+        indicators: { bodyPct: 0 }
+      },
+      bbo: { ...context.bbo, bestAsk: 0.50, longAsk: 0.50, bestBid: 0.49, shortAsk: 0.51 },
+      book: { asks: [{ price: 0.50, size: 8000 }], bids: [{ price: 0.49, size: 8000 }] },
+      timeframe: '15m',
+      now: NOW,
+      mispriceStats: emptyStats(),
+      momentumStats: emptyStats()
+    });
+    assert.equal(coinFlip.signals.length, 0);
+    assert.equal(coinFlip.skipped.includes('edge'), true);
     assert.equal(modest.skipped.includes('confidence'), false);
 
     const noModel = btcCandidatesFromContext({
@@ -538,7 +569,7 @@ test('weekday 08:37 and the rest of the day both scan the full suite', async () 
     book: { asks: [{ price: 0.50, size: 8000 }], bids: [{ price: 0.49, size: 8000 }] },
     signal: {
       confidence: 0.54,
-      probabilities: { up: 0.55 },
+      probabilities: { up: 0.60 },
       indicators: { bodyPct: 0.0005 }
     }
   };
@@ -688,6 +719,10 @@ test('nightly digest is one Chinese line and ignores paper or Gamma rows', async
       side: 'Up',
       size_usd: 2,
       limit_price: 0.5,
+      entry: 0.5,
+      model_p: 0.62,
+      market_p: 0.48,
+      p_used: 0.55,
       status: 'filled',
       pt_date: '2026-10-14'
     })}\n`);
@@ -706,6 +741,15 @@ test('nightly digest is one Chinese line and ignores paper or Gamma rows', async
     const saved = JSON.parse((await readFile(join(root, 'real-orders.jsonl'), 'utf8')).trim());
     assert.equal(saved.won, true);
     assert.equal(saved.settlement_source, 'cf-benchmarks-brti');
+    assert.equal(saved.calibration_logged, true);
+    const calibration = (await readFile(join(root, 'calibration.jsonl'), 'utf8')).trim().split('\n');
+    const last = JSON.parse(calibration[calibration.length - 1]);
+    assert.equal(last.model_p, 0.62);
+    assert.equal(last.market_p, 0.48);
+    assert.equal(last.p_used, 0.55);
+    assert.equal(last.entry, 0.5);
+    assert.equal(last.outcome, 'win');
+    assert.equal(last.pnl_usd, 2);
     const again = await runUsDigest({
       ledgerRoot: root,
       now: NOW,

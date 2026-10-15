@@ -2,6 +2,9 @@ import {
   US_BBO_MAX_AGE_MS,
   US_COUNTED_FILL_STATUSES,
   US_DAILY_CAPS,
+  US_BTC_MISPRICE_MAX_PRICE,
+  US_BTC_MISPRICE_MIN_PRICE,
+  US_BTC_MISPRICE_MODEL_WEIGHT,
   US_EDGE_BTC_MISPRICE,
   US_EDGE_LIVE_INPLAY,
   US_EDGE_STANDARD,
@@ -38,6 +41,7 @@ import {
   tradingSlug,
   windowKey
 } from './shape.js';
+import { blendModelToMarket, marketProbability, sectorBrakeReason } from './calibration.js';
 import { quoteForSide } from './gateway.js';
 import { cleanerEdgeFloor, US_RULES } from './rules.js';
 import { describeSession } from './time.js';
@@ -329,7 +333,19 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
   }
 
-  const edge = model != null ? model - executionPrice : readNumber(signal?.edge);
+  const marketP = marketProbability({
+    side,
+    ask: executionPrice,
+    bid: readPresentNumber(signal?.bid, signal?.gates?.bid),
+    quote
+  });
+  const blended = sector === 'btc_misprice'
+    ? blendModelToMarket(model, marketP, US_BTC_MISPRICE_MODEL_WEIGHT)
+    : { modelP: model, marketP, pUsed: model };
+  const modelP = blended.modelP == null ? null : Math.round(blended.modelP * 1e4) / 1e4;
+  const pUsed = blended.pUsed == null ? null : Math.round(blended.pUsed * 1e4) / 1e4;
+  const roundedMarket = blended.marketP == null ? null : Math.round(blended.marketP * 1e4) / 1e4;
+  const edge = pUsed != null ? Math.round((pUsed - executionPrice) * 1e4) / 1e4 : readNumber(signal?.edge);
   const sizing = resolveUsSizeUsd(sector, context.stats, signal?.size_usd ?? signal?.sizeUsd);
 
   let minEdge = null;
@@ -348,6 +364,8 @@ export function evaluateUsSignal(signal, context = {}) {
     maxPrice = US_LIVE_INPLAY_MAX_PRICE;
   } else if (sector === 'btc_misprice') {
     minEdge = cleanerEdgeFloor(US_EDGE_BTC_MISPRICE, sizing.cold);
+    minPrice = US_BTC_MISPRICE_MIN_PRICE;
+    maxPrice = US_BTC_MISPRICE_MAX_PRICE;
   } else if (sector === 'momentum') {
     maxPrice = US_MOMENTUM_MAX_PRICE;
     minPrice = US_PRICE_MIN;
@@ -430,6 +448,18 @@ export function evaluateUsSignal(signal, context = {}) {
     });
   }
 
+  const pause = context.sectorPauses?.[sector];
+  if (pause?.pausedUntil) {
+    return decision('defer', 'sector_brake', sectorBrakeReason(sector, pause), {
+      ...base,
+      status: 'pending',
+      updateStatus: false,
+      modelP,
+      marketP: roundedMarket,
+      pUsed
+    });
+  }
+
   const order = sizeUsLimitBuy({
     slug: base.slug,
     side,
@@ -445,6 +475,9 @@ export function evaluateUsSignal(signal, context = {}) {
     cold: sizing.cold,
     edge,
     model_prob: model,
+    modelP,
+    marketP: roundedMarket,
+    pUsed,
     limitPrice: executionPrice,
     quantity: order.quantity,
     order,

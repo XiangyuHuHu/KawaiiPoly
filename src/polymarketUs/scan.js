@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { syncSectorBrakes } from './calibration.js';
 import { btcResolutionRisk, evaluateUsSignal, rankConfidenceScore, sidePolarity } from './evaluate.js';
 import { eventSlug } from './gateway.js';
 import { US_RULES } from './rules.js';
@@ -357,6 +358,7 @@ export async function runUsScan({
   rules = US_RULES
 } = {}) {
   const session = describeSession(now, rules);
+  const brakeSync = await syncSectorBrakes(ledgerRoot, now);
   const allowShort = ignoreWindow || session.btcShort;
   const allowLong = ignoreWindow || session.longDated;
   const allowSuite = ignoreWindow || session.fullSuite;
@@ -395,6 +397,10 @@ export async function runUsScan({
         momentumStats
       });
       for (const signal of decision.signals) {
+        if (brakeSync.paused[normalizeSector(signal.sector)]) {
+          skipped.push(`${timeframe}:sector-brake`);
+          continue;
+        }
         signal.pt_date = signal.pt_date || ptDateKey(now);
         const result = await publishUsSignal({ ledgerRoot, workspaceRoot, signal, now });
         if (result.wrote) published.push(signal);
@@ -443,6 +449,10 @@ export async function runUsScan({
         skipped.push(`${model.sector}:${decision.reason}`);
         continue;
       }
+      if (brakeSync.paused[normalizeSector(decision.signal.sector)]) {
+        skipped.push(`${model.sector}:sector-brake`);
+        continue;
+      }
       decision.signal.pt_date = stats.ptDate;
       const result = await publishUsSignal({ ledgerRoot, workspaceRoot, signal: decision.signal, now });
       if (result.wrote) published.push(decision.signal);
@@ -458,6 +468,7 @@ export async function runUsScan({
     published: published.length,
     signals: published,
     skipped,
+    brakeEvents: brakeSync.events,
     reason: published.length ? 'signal' : (skipped[0] || 'no-signal'),
     session
   };

@@ -88,7 +88,7 @@ bot 下单后把对应行改成 `filled` 或 `skipped`，记入 `real-orders.jso
 Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 
 - 非 BTC、非 Live（赛前、天气、宏观、加密长线、master）：≥ 3 个百分点。价格仍要在 0.15–0.85。
-- BTC 15 分钟 / 1 小时错价：≥ 4 个百分点，而且 BBO 不超过 45 秒。结算规则必须是 BRTI 收盘涨跌，不是 Touch。
+- BTC 15 分钟 / 1 小时错价：模型概率先向该方向盘口中间价收缩，`p_used = 0.5 * model + 0.5 * market`，再要求 `p_used` 比卖价高至少 4 个百分点。买入价只允许 0.35–0.65。BBO 不超过 45 秒，按下单当次拉取计算。结算规则必须是 BRTI 收盘涨跌，不是 Touch。
 - BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。
@@ -100,6 +100,8 @@ Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge（门槛 ×1.5，SCAN_SPEC v3.2 `weakEdgeMultiplier`，不是 +0.02）。现金扣掉本笔后必须仍 ≥ $15。现金门只认 `buyingPower`；`account.json` 里没有 `buyingPower` 时，扫描不拿 `cash_usd` 或 `currentBalance` 顶上，由 bot 下单前再核购买力。
 
 日帽按太平洋时间自然日，计该板块真实成交加未过期 pending：Live 10、动量 15、BTC 错价 8、赛前 6、天气 4、宏观 3、加密 4、master 4。
+
+某个板块最近 10 笔已结算如果胜率低于 35% 并且已实现盈亏为负，这个板块停开新单 24 小时。触发和解除写在 `status/sector-brakes.jsonl`。结算时把 `model_p`、`market_p`、`p_used`、`entry` 和胜负写进 `calibration.jsonl`，方便事后看模型有没有偏。动量、非 BTC 的 edge、现金保留、仓位和日帽不变。
 
 板块模型（天气、赛前、宏观等）由 `npm run us:scan` 直接生成。手写行仍可放在 `polymarket-ledger/model-input.jsonl`，每行要有 `sector`、`slug`、`side`、`model_prob`、`resolution_risk`、`confidence`、`basis`。脚本会用美国站 BBO 覆盖价格；读不到美国站价格就不入选。各板块行数打在 `us-scan models pregame=… weather=… macro=… crypto=… master=…`，并写入 `status/model-counts.json`。论坛 `forum-signals.jsonl` 最近 48 小时的 A/B 级只作核对触发，不能代替概率。
 

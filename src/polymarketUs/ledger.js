@@ -36,6 +36,7 @@ export function ledgerPaths(ledgerDir) {
     pending: join(ledgerDir, 'signals', 'pending.jsonl'),
     candidates: join(ledgerDir, 'candidates.jsonl'),
     realOrders: join(ledgerDir, 'real-orders.jsonl'),
+    calibration: join(ledgerDir, 'calibration.jsonl'),
     momentum: join(ledgerDir, 'momentum-trial.jsonl'),
     health: join(ledgerDir, 'us-health.json')
   };

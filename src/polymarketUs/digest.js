@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { settlementFromUsMarket } from './brti.js';
+import { calibrationRecord } from './calibration.js';
+import { appendJsonl } from './ledger.js';
 import { readJsonl, usPaths } from './signals.js';
 import { formatPtLabel, ptDateKey, ptParts } from './time.js';
 
@@ -136,8 +138,21 @@ export async function runUsDigest({
       continue;
     }
     next.settled_pt_date = ptDateKey(now);
+    next.settled_at = next.settled_at || now.toISOString();
     dirty = true;
     resolved.push(next);
+  }
+  const calibrationRows = [];
+  for (const order of resolved) {
+    if (!isUsRealOrder(order) || order.calibration_logged === true) continue;
+    if (order.won !== true && order.won !== false) continue;
+    order.settled_at = order.settled_at || now.toISOString();
+    calibrationRows.push(calibrationRecord(order, order.settled_at));
+    order.calibration_logged = true;
+    dirty = true;
+  }
+  if (calibrationRows.length) {
+    for (const row of calibrationRows) await appendJsonl(paths.calibration, row);
   }
   if (dirty) {
     await mkdir(dirname(paths.realOrders), { recursive: true });
