@@ -311,7 +311,7 @@ export function evaluateUsSignal(signal, context = {}) {
 
   const bboAt = Date.parse(quote?.observedAt || signal?.bbo_at || signal?.bboAt || '');
   const bboAge = Number.isFinite(bboAt) ? now.getTime() - bboAt : null;
-  // 与 US_BBO_MAX_AGE_MS / rules.edge.bboMaxAgeMs 同一常量（SCAN_SPEC v3.2：15 秒）。
+  // 与 US_BBO_MAX_AGE_MS / rules.edge.bboMaxAgeMs 同一常量（BTC 错价 BBO 不超过 45 秒）。
   const bboFresh = bboAge != null && bboAge >= 0 && bboAge <= (context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS);
   if (sector === 'btc_misprice' && !bboFresh) {
     return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
