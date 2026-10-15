@@ -1,4 +1,12 @@
-import { PLAN20_ID, evaluatePlan20Candidate, plan20ScanDecision } from './polymarketPlan20.js';
+import {
+  PLAN20_DEFAULTS,
+  PLAN20_ID,
+  PLAN20_VERSION,
+  evaluatePlan20Candidate,
+  plan20EntryFeatures,
+  plan20Stake,
+  selectPlan20PaperEntries
+} from './polymarketPlan20.js';
 ﻿import { mkdir, readdir, readFile, rename, unlink, writeFile, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { appendFile } from 'node:fs/promises';
@@ -4517,7 +4525,9 @@ export class PolymarketTradingService {
     let planId = this.normalizePlanId(options.planId || 'plan1');
     if (planId === 'plan2') planId = 'plan2_5';
     const bucket = this.getBucket(planId);
-    if (enabled && planId === PLAN20_ID) throw new Error('Plan20 has no surviving segments; entries disabled.');
+    if (enabled && planId === PLAN20_ID && this.config.plan20Enabled !== true) {
+      throw new Error('Plan20 已禁用（POLYMARKET_PLAN20_ENABLED=false）。');
+    }
     if (enabled && planId === 'plan5' && this.config.plan5Enabled === false) {
       throw new Error('Plan5 已停用：历史实盘负期望，默认不再开仓。');
     }
@@ -4578,19 +4588,158 @@ export class PolymarketTradingService {
     return { planId, ...bucket.auto };
   }
 
-  async createPlan20PaperOrder(input = {}) {
-    const decision = evaluatePlan20Candidate(input);
-    if (!decision.ok) return null;
-    // Re-mining requires a reviewed source-market entry adapter before any fill.
-    throw new Error('Plan20 entry adapter required.');
+  plan20StakeOptions() {
+    const num = (value, fallback) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    };
+    return {
+      orderUsd: num(this.config.plan20OrderUsd, PLAN20_DEFAULTS.orderUsd),
+      maxOpen: num(this.config.plan20MaxOpen, PLAN20_DEFAULTS.maxOpen),
+      cashFloor: num(this.config.plan20CashFloor, PLAN20_DEFAULTS.cashFloor),
+      maxTradePct: num(this.config.plan20MaxTradePct, PLAN20_DEFAULTS.maxTradePct),
+      maxExposurePct: num(this.config.plan20MaxExposurePct, PLAN20_DEFAULTS.maxExposurePct)
+    };
   }
 
-  async runPlan20PaperScan() {
-    const decision = plan20ScanDecision();
+  async ensurePlan20PaperRunning() {
+    if (this.config.plan20Enabled !== true) return { started: false, reason: 'disabled' };
     const bucket = this.getBucket(PLAN20_ID);
-    bucket.auto = { ...bucket.auto, lastAction: 'skip', lastReason: decision.reason, lastRunAtIso: new Date().toISOString() };
+    const startingCash = Number(this.config.plan20StartingCash);
+    const cash = Number.isFinite(startingCash) && startingCash > 0 ? startingCash : PLAN20_DEFAULTS.startingCash;
+    if (!bucket.portfolio.portfolioInitialized) {
+      await this.configurePortfolio({ planId: PLAN20_ID, cash });
+    }
+    if (bucket.auto?.enabled !== true) {
+      await this.setAuto(true, { planId: PLAN20_ID });
+    }
+    return {
+      started: true,
+      cash: bucket.portfolio.cash,
+      startingCash: bucket.portfolio.startingCash,
+      auto: bucket.auto.enabled === true
+    };
+  }
+
+  // Paper fill only. Live mode and a disabled flag return null and write nothing.
+  async createPlan20PaperOrder(input = {}, { persist = true } = {}) {
+    if (String(input.mode || 'paper').toLowerCase() !== 'paper') return null;
+    if (this.config.plan20Enabled !== true) return null;
+    const entryPrice = Number(input.entryPrice ?? input.ask);
+    const entryTimeMs = Number(input.entryTimeMs ?? Date.now());
+    const features = plan20EntryFeatures({ entryPrice, entryTimeMs });
+    const decision = evaluatePlan20Candidate({ features, mode: 'paper' });
+    if (!decision.ok) return null;
+    this.ensurePortfolioReady(PLAN20_ID);
+    const bucket = this.getBucket(PLAN20_ID);
+    const slug = String(input.marketSlug || '');
+    const outcome = String(input.outcome || '');
+    const tokenId = String(input.tokenId || '');
+    if (!slug || !tokenId) return null;
+    if (bucket.paperOrders.some((order) => order.tokenId === tokenId || (order.marketSlug === slug && order.outcome === outcome))) {
+      return null;
+    }
+    const openOrders = bucket.paperOrders.filter((order) => order.settlementStatus === 'open');
+    const exposure = openOrders.reduce((sum, order) => sum + Math.max(0, Number(order.usd) || 0), 0);
+    const usd = plan20Stake({
+      cash: Number(bucket.portfolio.cash),
+      startingCash: Number(bucket.portfolio.startingCash) || PLAN20_DEFAULTS.startingCash,
+      exposure,
+      openCount: openOrders.length,
+      ...this.plan20StakeOptions()
+    });
+    if (!(usd >= 1)) return null;
+    const direction = /^(up|down)$/i.test(outcome) ? outcome.toLowerCase() : 'event';
+    const draft = applyPaperEntryTakerFee({
+      planId: PLAN20_ID,
+      symbol: input.symbol || input.categoryId || 'event',
+      timeframe: input.timeframe || 'event',
+      outcome,
+      direction,
+      limitPrice: entryPrice,
+      entryPrice,
+      shares: usd / entryPrice,
+      usd,
+      market: input.title || slug,
+      marketSlug: slug,
+      conditionId: input.conditionId || null,
+      tokenId,
+      categoryId: input.categoryId || 'plan20-segment',
+      plan20RuleId: decision.rule?.id || null,
+      plan20Features: features,
+      targetTimeIso: input.endDate || null,
+      strategyVersion: PLAN20_VERSION,
+      createdAtIso: new Date().toISOString(),
+      settlementStatus: 'open',
+      status: 'paper-filled',
+      mode: 'paper'
+    }, this.config);
+    if (!(Number(draft.shares) > 0)) return null;
+    const order = {
+      id: `pm-plan20-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      ...draft
+    };
+    bucket.portfolio.cash = round2(bucket.portfolio.cash - usd);
+    bucket.paperOrders.push(order);
+    bucket.auto = {
+      ...bucket.auto,
+      lastAction: 'bought',
+      lastReason: `${decision.rule?.id || PLAN20_ID} ${outcome} @ ${(entryPrice * 100).toFixed(1)}¢`,
+      lastOrderId: order.id,
+      lastRunAtIso: order.createdAtIso
+    };
+    if (persist) await this.persist(PLAN20_ID);
+    return order;
+  }
+
+  async finishPlan20Scan({ bought = 0, reason = '' } = {}) {
+    const bucket = this.getBucket(PLAN20_ID);
+    bucket.auto = {
+      ...bucket.auto,
+      lastAction: bought > 0 ? 'bought' : 'skip',
+      lastReason: reason,
+      lastRunAtIso: new Date().toISOString()
+    };
     await this.persist(PLAN20_ID);
-    return decision;
+    return { bought, reason };
+  }
+
+  async runPlan20PaperScan({ markets = null, nowMs = Date.now(), idleReason = null, mode = 'paper' } = {}) {
+    if (String(mode || 'paper').toLowerCase() !== 'paper') return { bought: 0, reason: 'paper_only' };
+    if (this.config.plan20Enabled !== true) return { bought: 0, reason: 'disabled' };
+    const bucket = this.getBucket(PLAN20_ID);
+    if (bucket.auto?.enabled !== true || bucket.portfolio?.portfolioInitialized !== true) {
+      return { bought: 0, reason: 'not_running' };
+    }
+    if (idleReason) return this.finishPlan20Scan({ bought: 0, reason: idleReason });
+    if (!Array.isArray(markets)) return this.finishPlan20Scan({ bought: 0, reason: 'discovery_required' });
+    const openOrders = bucket.paperOrders.filter((order) => order.settlementStatus === 'open');
+    const exposure = openOrders.reduce((sum, order) => sum + Math.max(0, Number(order.usd) || 0), 0);
+    const heldKeys = [];
+    for (const order of bucket.paperOrders) {
+      if (order.tokenId) heldKeys.push(String(order.tokenId));
+      if (order.marketSlug) heldKeys.push(`${order.marketSlug}:${order.outcome || ''}`);
+    }
+    const selected = selectPlan20PaperEntries({
+      markets,
+      nowMs,
+      cash: Number(bucket.portfolio.cash),
+      startingCash: Number(bucket.portfolio.startingCash) || PLAN20_DEFAULTS.startingCash,
+      exposure,
+      openCount: openOrders.length,
+      heldKeys,
+      mode: 'paper',
+      ...this.plan20StakeOptions()
+    });
+    let bought = 0;
+    for (const entry of selected.entries) {
+      const order = await this.createPlan20PaperOrder({ ...entry, entryTimeMs: nowMs, mode: 'paper' }, { persist: false });
+      if (order) bought += 1;
+    }
+    return this.finishPlan20Scan({
+      bought,
+      reason: bought > 0 ? 'matched' : (selected.reason || 'no_matching_segment')
+    });
   }
 
   async createPlan15PaperOrder(input = {}) {

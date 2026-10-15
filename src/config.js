@@ -971,13 +971,16 @@ function buildPolymarketConfig() {
     plan17MaxNewPerScan: Number(process.env.POLYMARKET_PLAN17_MAX_NEW_PER_SCAN || 6),
     plan17LoopMs: Number(process.env.POLYMARKET_PLAN17_LOOP_MS || 120000),
     plan17FeeRate: Number(process.env.POLYMARKET_PLAN17_FEE_RATE || 0.07),
-    // Plan20 is paper-only; empty mined rules intentionally make it a no-op.
+    // Plan20 is paper-only. Auto and the $500 book start only when the flag is true.
     plan20Enabled: process.env.POLYMARKET_PLAN20_ENABLED === 'true',
-    plan20NewEntriesEnabled: false,
-    plan20StartingCash: 500,
-    plan20OrderUsd: 2,
-    plan20MaxOpen: 40,
-    plan20CashFloor: 10,
+    plan20NewEntriesEnabled: process.env.POLYMARKET_PLAN20_ENABLED === 'true',
+    plan20StartingCash: Number(process.env.POLYMARKET_PLAN20_STARTING_CASH || 500),
+    plan20OrderUsd: Number(process.env.POLYMARKET_PLAN20_ORDER_USD || 2),
+    plan20MaxOpen: Number(process.env.POLYMARKET_PLAN20_MAX_OPEN || 40),
+    plan20CashFloor: Number(process.env.POLYMARKET_PLAN20_CASH_FLOOR || 10),
+    plan20MaxTradePct: Number(process.env.POLYMARKET_PLAN20_MAX_TRADE_PCT || 0.05),
+    plan20MaxExposurePct: Number(process.env.POLYMARKET_PLAN20_MAX_EXPOSURE_PCT || 0.30),
+    plan20LoopMs: Number(process.env.POLYMARKET_PLAN20_LOOP_MS || 60000),
     // Plan18（梅花易数）/ Plan19（小六壬）：算卦随机对照组，配置项同构。
     ...divinationPlanConfig('plan18', 'POLYMARKET_PLAN18'),
     ...divinationPlanConfig('plan19', 'POLYMARKET_PLAN19'),

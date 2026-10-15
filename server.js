@@ -27,6 +27,7 @@ import { fetchPlan16Ensemble } from './src/plan16Forecast.js';
 import { PLAN17_COINS, plan17MarketDataSkipReason, createPlan17FailureLogger, parsePlan17Market, plan17IvSkipReason, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
 import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
+import { PLAN20_BOOK_PRESCREEN, plan20ExecutableQuotes, plan20QuotesFromGamma } from './src/polymarketPlan20.js';
 import {
   blendPlan5LockStrengthStats,
   buildPolymarketPaperPlan5
@@ -241,6 +242,18 @@ if (config.polymarket.enabled) {
         console.error(`${planId} paper scan failed: ${error.message}`);
       });
     }, Math.max(10_000, Number(config.polymarket[`${planId}LoopMs`]) || 20_000));
+  }
+  if (config.polymarket.plan20Enabled === true) {
+    setTimeout(() => ensurePlan20PaperRunning()
+      .then(() => runPlan20PaperScan())
+      .catch((error) => {
+        console.error(`Plan20 paper ensure failed: ${error.message}`);
+      }), 8200);
+    setInterval(() => {
+      runPlan20PaperScan().catch((error) => {
+        console.error(`Plan20 paper scan failed: ${error.message}`);
+      });
+    }, Math.max(15_000, Number(config.polymarket.plan20LoopMs) || 60_000));
   }
 }
 
@@ -5363,10 +5376,77 @@ async function runPolymarketAutoLoop() {
   }
 }
 
+async function ensurePlan20PaperRunning() {
+  return polymarketTrading.ensurePlan20PaperRunning();
+}
+
+let plan20ScanRunning = false;
+
+async function runPlan20PaperScan() {
+  if (plan20ScanRunning) return { bought: 0, reason: 'running' };
+  if (config.polymarket.plan20Enabled !== true) return { bought: 0, reason: 'disabled' };
+  const status = polymarketTrading.statusForPlan('plan20');
+  if (status?.auto?.enabled !== true || status?.portfolio?.portfolioInitialized !== true) {
+    return { bought: 0, reason: 'not_running' };
+  }
+  const nowMs = Date.now();
+  const hour = new Date(nowMs).getUTCHours();
+  if (hour < 12 || hour >= 16) {
+    return polymarketTrading.runPlan20PaperScan({ markets: [], nowMs, idleReason: 'outside_entry_hour' });
+  }
+  plan20ScanRunning = true;
+  try {
+    const discovered = [];
+    for (const category of PREDICTION_CATEGORIES) {
+      let events = [];
+      try {
+        const tags = [category.tag, ...(category.fallbackTags || [])];
+        for (const tag of tags) {
+          events = await polymarketClient.getActiveEventsByTag({ tag, limit: 40 });
+          if (events.length) break;
+        }
+      } catch (error) {
+        console.error(`Plan20 discovery ${category.id} failed: ${error.message}`);
+        continue;
+      }
+      for (const event of events) {
+        const markets = Array.isArray(event?.markets) ? event.markets : [];
+        for (const market of markets) discovered.push({ market, event, categoryId: category.id });
+      }
+    }
+    const quotes = plan20QuotesFromGamma(discovered);
+    const prescreen = quotes.filter((quote) => (
+      quote.tokenId
+      && quote.entryPrice >= PLAN20_BOOK_PRESCREEN.min
+      && quote.entryPrice < PLAN20_BOOK_PRESCREEN.max
+    ));
+    let books = [];
+    try {
+      books = prescreen.length
+        ? await polymarketClient.getOrderBooks(prescreen.map((quote) => quote.tokenId))
+        : [];
+    } catch (error) {
+      console.error(`Plan20 books failed: ${error.message}`);
+      return polymarketTrading.runPlan20PaperScan({ markets: [], nowMs, idleReason: 'books_unavailable' });
+    }
+    const bookByToken = new Map();
+    for (const raw of books) {
+      const tokenId = String(raw?.asset_id || raw?.assetId || raw?.token_id || raw?.tokenId || '');
+      if (tokenId) bookByToken.set(tokenId, normalizeOrderBook(raw));
+    }
+    return polymarketTrading.runPlan20PaperScan({
+      markets: plan20ExecutableQuotes(prescreen, bookByToken),
+      nowMs
+    });
+  } finally {
+    plan20ScanRunning = false;
+  }
+}
+
 function scheduleIsolatedPaperPlanTick(planId) {
   const id = normalizePaperPlanId(planId);
   if (id === 'plan20') {
-    polymarketTrading.runPlan20PaperScan().catch(error => console.error(`Plan20 scan: ${error.message}`));
+    runPlan20PaperScan().catch((error) => console.error(`Plan20 paper scan failed: ${error.message}`));
     return;
   }
   if (id === 'plan15') {
