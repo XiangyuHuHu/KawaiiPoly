@@ -92,13 +92,24 @@ export function btcResolutionRisk(market) {
   return 'Med';
 }
 
-function confidenceRank(value, modelProb) {
+export function rankConfidenceScore(value, rules = US_RULES) {
   if (value === 'High' || value === 'Med' || value === 'Low') return value;
+  const score = finite(value);
+  if (score == null) return null;
+  if (score + 1e-12 >= rules.confidence.highMin) return 'High';
+  if (score + 1e-12 >= rules.confidence.medMin) return 'Med';
+  return 'Low';
+}
+
+function confidenceRank(value, modelProb, rules) {
+  if (value === 'High' || value === 'Med' || value === 'Low') return value;
+  const scored = rankConfidenceScore(value, rules);
+  if (scored === 'Low') return 'Low';
   const prob = finite(modelProb);
-  if (prob == null) return 'Low';
+  if (prob == null) return scored || 'Low';
   const conviction = Math.max(prob, 1 - prob);
-  if (conviction >= 0.62) return 'High';
-  if (conviction >= 0.56) return 'Med';
+  if (conviction + 1e-12 >= rules.confidence.highMin) return 'High';
+  if (conviction + 1e-12 >= rules.confidence.medMin) return 'Med';
   return 'Low';
 }
 
@@ -130,7 +141,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const liveKind = input.liveKind || null;
   const capModel = !(sector === 'live' && liveKind === 'endgame');
   const modelProb = capModel ? Math.min(rawModel, rules.edge.modelProbCap) : Math.min(rawModel, 0.99);
-  const confidence = confidenceRank(input.confidence, modelProb);
+  const confidence = confidenceRank(input.confidence, modelProb, rules);
   if (confidence === 'Low') return reject('confidence');
 
   const sizing = sizeForRecord(input.record || {}, rules);
@@ -209,6 +220,8 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     ask: round4(ask),
     expires_at: input.expiresAt,
     basis: input.basis || '',
+    confidence,
+    resolution_risk: resolutionRisk,
     status: 'pending',
     event_url: eventUrl(slug),
     venue: 'polymarket.us',

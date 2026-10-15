@@ -145,6 +145,21 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(evaluateUsSignal(passing({ bboSampledAt: '2026-10-14T15:36:00.000Z' })).reason, 'stale-bbo');
   assert.equal(evaluateUsSignal(passing({ resolutionRisk: 'High' })).reason, 'resolution-risk');
   assert.equal(evaluateUsSignal(passing({ confidence: 'Low' })).reason, 'confidence');
+  assert.equal(evaluateUsSignal(passing({
+    confidence: 0.54,
+    modelProb: 0.55,
+    ask: 0.50
+  })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    confidence: 0,
+    modelProb: 0.70,
+    ask: 0.55
+  })).reason, 'confidence');
+  assert.equal(evaluateUsSignal(passing({
+    confidence: undefined,
+    modelProb: 0.52,
+    ask: 0.47
+  })).ok, true);
   assert.equal(evaluateUsSignal(passing({ spreadCents: 4 })).reason, 'spread');
   assert.equal(evaluateUsSignal(passing({ liquidityUsd: null })).ok, true);
   assert.equal(evaluateUsSignal(passing({ slug: 'eth-updown-15m', title: 'ETH up or down' })).reason, 'intl-only');
@@ -238,19 +253,54 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(US_RULES.scannerPlacesOrders, false);
 });
 
-test('Pacific schedule matches weekday and weekend sessions', () => {
+test('Pacific schedule matches weekday full suite, dense BTC, and weekend sessions', () => {
   const morning = describeSession(NOW, US_RULES);
   assert.equal(morning.btcShort, true);
   assert.equal(morning.weekdaySession, '08:37');
-  assert.equal(morning.fullSuite, false);
-  const closed = describeSession(new Date('2026-10-14T16:00:00.000Z'), US_RULES);
+  assert.equal(morning.fullSuite, true);
+  assert.equal(morning.btcShortDense, true);
+  assert.equal(morning.label, 'weekday-08:37-full');
+  const noon = describeSession(new Date('2026-10-14T19:37:00.000Z'), US_RULES);
+  assert.equal(noon.weekdaySession, '12:37');
+  assert.equal(noon.fullSuite, true);
+  assert.equal(noon.btcShort, true);
+  const eveningSuite = describeSession(new Date('2026-10-15T01:37:00.000Z'), US_RULES);
+  assert.equal(eveningSuite.weekdaySession, '18:37');
+  assert.equal(eveningSuite.fullSuite, true);
+  assert.equal(eveningSuite.label, 'weekday-18:37-full');
+  const dense = describeSession(new Date('2026-10-14T16:00:00.000Z'), US_RULES);
+  assert.equal(dense.fullSuite, false);
+  assert.equal(dense.btcShort, true);
+  assert.equal(dense.btcShortDense, true);
+  assert.equal(dense.weekdaySession, null);
+  assert.equal(dense.label, 'weekday-btc-dense');
+  const lateDay = describeSession(new Date('2026-10-15T02:59:00.000Z'), US_RULES);
+  assert.equal(lateDay.btcShortDense, true);
+  assert.equal(lateDay.fullSuite, false);
+  const atEight = describeSession(new Date('2026-10-15T03:00:00.000Z'), US_RULES);
+  assert.equal(atEight.label, 'closed');
+  assert.equal(atEight.btcShort, false);
+  const early = describeSession(new Date('2026-10-14T14:30:00.000Z'), US_RULES);
+  assert.equal(early.label, 'closed');
+  assert.equal(early.btcShort, false);
+  assert.equal(early.fullSuite, false);
+  const closed = describeSession(new Date('2026-10-15T05:00:00.000Z'), US_RULES);
   assert.equal(closed.label, 'closed');
+  assert.equal(closed.btcShortDense, false);
   const weekend = describeSession(new Date('2026-10-17T18:00:00.000Z'), US_RULES);
   assert.equal(weekend.fullSuite, true);
   assert.equal(weekend.btcShort, true);
+  assert.equal(weekend.btcShortDense, false);
   const monday = describeSession(new Date('2026-10-12T15:50:00.000Z'), US_RULES);
   assert.equal(monday.longDated, true);
   assert.equal(monday.weekdaySession, '08:37');
+  assert.equal(monday.fullSuite, true);
+  const mondayTail = describeSession(new Date('2026-10-12T16:00:00.000Z'), US_RULES);
+  assert.equal(mondayTail.longDated, true);
+  assert.equal(mondayTail.weekdaySession, null);
+  assert.equal(mondayTail.fullSuite, false);
+  assert.equal(mondayTail.btcShortDense, true);
+  assert.equal(mondayTail.label, 'weekday-btc-dense-plus-longdated');
 });
 
 test('BRTI official price is a 60-print average rounded to cents', () => {
@@ -273,7 +323,7 @@ test('empty and repeat scans do not write a second SIGNAL', async () => {
   const workspace = await mkdtemp(join(tmpdir(), 'us-workspace-'));
   try {
     const outside = await runUsScan({
-      now: new Date('2026-10-14T16:00:00.000Z'),
+      now: new Date('2026-10-15T05:00:00.000Z'),
       ledgerRoot: root,
       workspaceRoot: workspace,
       loadWindow: async () => { throw new Error('should not load'); }
@@ -367,6 +417,41 @@ test('session scan writes one US signal and skips the opposite momentum', async 
     assert.equal(preview.signals.length, 1);
     assert.equal(preview.signals[0].sector, 'btc-misprice');
 
+    const modest = btcCandidatesFromContext({
+      ...context,
+      signal: {
+        confidence: 0.54,
+        probabilities: { up: 0.55 },
+        indicators: { bodyPct: 0.0005 }
+      },
+      bbo: { ...context.bbo, bestAsk: 0.50, longAsk: 0.50, bestBid: 0.49, shortAsk: 0.51 },
+      book: { asks: [{ price: 0.50, size: 8000 }], bids: [{ price: 0.49, size: 8000 }] },
+      timeframe: '15m',
+      now: NOW,
+      mispriceStats: emptyStats(),
+      momentumStats: emptyStats()
+    });
+    assert.equal(modest.signals.length, 1);
+    assert.equal(modest.signals[0].sector, 'btc-misprice');
+    assert.equal(modest.signals[0].confidence, 'Med');
+    assert.equal(modest.signals[0].edge, 0.05);
+    assert.equal(modest.skipped.includes('confidence'), false);
+
+    const noModel = btcCandidatesFromContext({
+      ...context,
+      signal: {
+        confidence: 0,
+        probabilities: { up: 0.70 },
+        indicators: { bodyPct: 0.0006 }
+      },
+      timeframe: '15m',
+      now: NOW,
+      mispriceStats: emptyStats(),
+      momentumStats: emptyStats()
+    });
+    assert.equal(noModel.signals.length, 0);
+    assert.equal(noModel.skipped.includes('confidence'), true);
+
     let loads = 0;
     const result = await runUsScan({
       now: NOW,
@@ -383,6 +468,118 @@ test('session scan writes one US signal and skips the opposite momentum', async 
     const pending = await readJsonl(join(root, 'signals', 'pending.jsonl'));
     assert.equal(pending.length, 1);
     assert.equal(pending[0].auto_order.scanner_places_orders, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test('weekday 08:37 scans the full suite and dense daytime scans BTC only', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'us-suite-'));
+  const workspace = await mkdtemp(join(tmpdir(), 'us-suite-ws-'));
+  const context = {
+    market: {
+      slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
+      description: 'settle to Up if the Bitcoin price is greater than or equal. Outcome sourced from CF Benchmarks BRTI. The official value is the simple average of these prices, rounded to the nearest 2 decimal places.',
+      assetPriceTerms: {
+        indexSymbol: 'BRTI',
+        marketType: 'ASSET_PRICE_MARKET_TYPE_UP_DOWN',
+        priceDecimals: 2,
+        windowStart: '2026-10-14T15:30:00.000Z',
+        windowEnd: '2026-10-14T15:45:00.000Z'
+      }
+    },
+    bbo: {
+      bestBid: 0.49,
+      bestAsk: 0.50,
+      longAsk: 0.50,
+      shortAsk: 0.51,
+      askShares: 8000,
+      bidShares: 8000,
+      sampledAt: NOW.toISOString()
+    },
+    book: { asks: [{ price: 0.50, size: 8000 }], bids: [{ price: 0.49, size: 8000 }] },
+    signal: {
+      confidence: 0.54,
+      probabilities: { up: 0.55 },
+      indicators: { bodyPct: 0.0005 }
+    }
+  };
+  try {
+    let suiteModels = 0;
+    const suite = await runUsScan({
+      now: NOW,
+      ledgerRoot: root,
+      workspaceRoot: workspace,
+      loadWindow: async ({ timeframe }) => (timeframe === '15m' ? context : { market: null }),
+      loadModels: async () => {
+        suiteModels += 1;
+        return [
+          {
+            sector: 'weather',
+            slug: 'nyc-high-70',
+            side: 'Yes',
+            model_prob: 0.40,
+            ask: 0.36,
+            bid: 0.35,
+            spread_cents: 1,
+            depth_usd: 80,
+            liquidity_usd: 500,
+            resolution_risk: 'Low',
+            confidence: 'High',
+            city: 'New York',
+            basis: 'ensemble',
+            expires_at: '2026-10-15T07:00:00.000Z'
+          },
+          {
+            sector: 'pregame',
+            slug: 'nfl-week-7',
+            side: 'Yes',
+            model_prob: 0.40,
+            ask: 0.39,
+            bid: 0.38,
+            spread_cents: 1,
+            depth_usd: 80,
+            liquidity_usd: 500,
+            resolution_risk: 'Low',
+            confidence: 'Med',
+            basis: 'thin edge',
+            expires_at: '2026-10-19T00:00:00.000Z'
+          }
+        ];
+      }
+    });
+    assert.equal(suite.session.fullSuite, true);
+    assert.equal(suiteModels, 1);
+    assert.equal(suite.signals.some((row) => row.sector === 'btc-misprice'), true);
+    assert.equal(suite.signals.some((row) => row.sector === 'weather'), true);
+    assert.equal(suite.skipped.includes('pregame:edge'), true);
+    assert.equal(suite.signals.some((row) => row.auto_order?.scanner_places_orders === true), false);
+
+    const denseRoot = await mkdtemp(join(tmpdir(), 'us-dense-'));
+    let denseModels = 0;
+    let denseFrames = [];
+    const dense = await runUsScan({
+      now: new Date('2026-10-14T16:00:00.000Z'),
+      ledgerRoot: denseRoot,
+      workspaceRoot: workspace,
+      loadWindow: async ({ timeframe }) => {
+        denseFrames.push(timeframe);
+        return { market: null };
+      },
+      loadModels: async () => {
+        denseModels += 1;
+        return [{ sector: 'weather', slug: 'should-not-load', side: 'Yes', model_prob: 0.9, ask: 0.4 }];
+      }
+    });
+    assert.equal(dense.session.label, 'weekday-btc-dense');
+    assert.equal(dense.session.fullSuite, false);
+    assert.equal(dense.session.btcShort, true);
+    assert.deepEqual(denseFrames, ['15m', '1h']);
+    assert.equal(denseModels, 0);
+    assert.equal(dense.published, 0);
+    assert.equal(dense.reason, '15m:missing');
+    await rm(denseRoot, { recursive: true, force: true });
   } finally {
     await rm(root, { recursive: true, force: true });
     await rm(workspace, { recursive: true, force: true });

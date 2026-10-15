@@ -47,6 +47,12 @@ export const US_RULES = Object.freeze({
     modelProbCap: 0.90,
     weakEdgeMultiplier: 1.5
   }),
+  // SCAN_SPEC v3.2 只跳过 confidence=Low。0.50 以下（含模型没形成时的 0）才是 Low。
+  // 先前 Med 从 0.56 起，会把已经满足 5 个百分点错价、但区间置信度落在 0.50–0.56 的 15m 单全部挡掉。
+  confidence: Object.freeze({
+    highMin: 0.62,
+    medMin: 0.50
+  }),
   size: Object.freeze({
     defaultUsd: 2,
     tier70Usd: 3,
@@ -84,7 +90,12 @@ export const US_RULES = Object.freeze({
     weekdaySessions: Object.freeze(['08:37', '12:37', '18:37']),
     sessionLengthMinutes: 15,
     mondayLongDated: '08:50',
-    weekendFullSuite: true
+    weekendFullSuite: true,
+    // 工作日白天半开区间 [start, end)。这段里 BTC 15m/1h 错价和 15m 动量可以扫，不必等到三个全板块窗口。
+    weekdayBtcDense: Object.freeze({
+      start: '08:00',
+      end: '20:00'
+    })
   }),
   categories: Object.freeze([
     'sports',

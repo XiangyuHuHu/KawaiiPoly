@@ -26,22 +26,24 @@
 
 时区是太平洋时间。
 
-- 周一到周五只在 **8:37、12:37、18:37** 各跑一次短线（窗口 15 分钟）。窗口外脚本直接退出，不写 `signals/`。
-- 周六日全天可跑。仍然没有合格 edge 就不写文件。
-- 周一 **8:50** 额外看一笔偏长期（`crypto` / `master`）。模型概率要写在 `model-input.jsonl`，脚本再用美国站 BBO 重定价。没有模型文件就没有长期 SIGNAL。
+- 周一到周五 **8:37、12:37、18:37** 各跑一次全板块（窗口 15 分钟）：体育直播、赛前、天气、宏观、加密、master，以及 BTC 15 分钟 / 1 小时。门槛、日帽、现金和周末全套相同。
+- 周一到周五 **8:00–20:00**（太平洋时间，不含 20:00）另外可以密集扫 BTC：15 分钟和 1 小时错价，加上 15 分钟动量。建议每 15 分钟跑一次 `npm run us:scan`。这段不靠浏览器，行情来自 `gateway.polymarket.us`。其它板块在这段里不扫，除非刚好落在上面三个窗口。没有合格 edge 就不写 SIGNAL。
+- 周六日全天可跑全板块。仍然没有合格 edge 就不写文件。
+- 周一 **8:50** 额外看一笔偏长期（`crypto` / `master`）。模型概率要写在 `model-input.jsonl`，脚本再用美国站 BBO 重定价。没有模型文件就没有长期 SIGNAL。8:50 落在早盘窗口内，那一次会连同全板块一起看；8:52–9:05 只剩长期单加 BTC 短线。
 - 国际短线扫描保持暂停，不要用这套脚本去扫国际盘。
 
 ```cron
 CRON_TZ=America/Los_Angeles
 37 8,12,18 * * 1-5 cd /workspace && npm run us:scan
 50 8 * * 1 cd /workspace && npm run us:scan
+*/15 8-19 * * 1-5 cd /workspace && npm run us:scan
 */15 * * * 0,6 cd /workspace && npm run us:scan
 5 23 * * * cd /workspace && npm run us:settle
 ```
 
-周一 8:50 那一行如果只想扫长期单，仍用 `npm run us:scan`（8:50 同时落在早盘 15 分钟窗口内，短线和长期都会看）。`us:settle` 只做结算摘要。
+工作日 `*/15 8-19` 在 8:00–19:45 每 15 分钟扫一次 BTC。它踩不中 8:37 / 12:37 / 18:37，所以全板块仍要单独的三行。若某次 `*/15` 落进这三个 15 分钟窗口（例如 8:45），同一次会升成全板块。`us:settle` 只做结算摘要。
 
-手动补跑、不看钟点：`POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan`。
+手动补跑、不看钟点：`POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan`。平时不要靠这个开关加密扫描；白天直接 `npm run us:scan`，会话标志 `btcShortDense` 会放行 BTC。
 
 ## SIGNAL 写在哪里
 
@@ -95,7 +97,7 @@ Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 - BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。
-- 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。
+- 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。数值置信度低于 0.50（含模型没形成时的 0）才记为 Low；0.50–0.62 记为 Med，0.62 及以上记为 High。显式写成 Low 的模型行仍然跳过。Med 不再从 0.56 起算，避免 15 分钟错价已经有 5 个百分点 edge 却被 `15m:confidence` 静默丢掉。
 - 同一 15 分钟窗口不能一边 Up 一边 Down。错价和动量同时合格时只留错价。
 - 国际站独有盘不入选：ETH、美债收益率、纽约/洛杉矶/芝加哥/迈阿密/旧金山以外的城市气温。
 - `picks.jsonl` 里已有同一市场、同一方向，不再入选。
