@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -197,6 +198,10 @@ test('cold edge and BBO age are the same for scan and trade', () => {
   assert.equal(cleanerEdgeFloor(US_EDGE_BTC_MISPRICE, false), 0.04);
   assert.equal(cleanerEdgeFloor(US_EDGE_BTC_MISPRICE, true), 0.06);
   assert.equal(buildPolymarketUsConfig({}).bboMaxAgeMs, US_BBO_MAX_AGE_MS);
+  const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
+  const sample = example.match(/^#?\s*POLYMARKET_US_BBO_MAX_AGE_MS=(\d+)\s*$/m);
+  assert.equal(Number(sample?.[1]), 45_000);
+  assert.equal(Number(sample?.[1]), US_BBO_MAX_AGE_MS);
 
   const coldStats = { weather: { samples: 10, winRate: 0.4, streakLosses: 0 } };
   assert.equal(evaluateScan(scanInput({ modelProb: 0.44 })).reason, 'edge');
