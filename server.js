@@ -5365,6 +5365,10 @@ async function runPolymarketAutoLoop() {
 
 function scheduleIsolatedPaperPlanTick(planId) {
   const id = normalizePaperPlanId(planId);
+  if (id === 'plan20') {
+    polymarketTrading.runPlan20PaperScan().catch(error => console.error(`Plan20 scan: ${error.message}`));
+    return;
+  }
   if (id === 'plan15') {
     runPlan15PaperScan().catch((error) => {
       console.error(`Plan15 paper scan failed: ${error.message}`);

@@ -22,5 +22,5 @@ test('explicitly disabled paper plans are omitted', () => {
     config: { plan16Enabled: false }, statusForPlan: (planId) => ({ planId })
   });
   assert.equal(view.plans.plan16, undefined);
-  assert.equal(Object.keys(view.plans).length, 5);
+  assert.equal(Object.keys(view.plans).length, ACTIVE_PAPER_PLAN_IDS.length - 1);
 });
