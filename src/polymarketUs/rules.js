@@ -94,10 +94,11 @@ export const US_RULES = Object.freeze({
     sessionLengthMinutes: 15,
     mondayLongDated: '08:50',
     weekendFullSuite: true,
-    // 工作日白天半开区间 [start, end)。这段里 BTC 15m/1h 错价和 15m 动量可以扫，不必等到三个全板块窗口。
+    // 工作日半开区间 [start, end)。BTC 15m/1h 错价和 15m 动量按用户 2026-10-15 起工作日 24/7，不必等到三个全板块窗口。周末已是 fullSuite。
+    // parseClock('24:00') = 1440，minuteOfDay < 1440 覆盖全天每一分钟。
     weekdayBtcDense: Object.freeze({
-      start: '08:00',
-      end: '20:00'
+      start: '00:00',
+      end: '24:00'
     })
   }),
   categories: Object.freeze([

@@ -78,7 +78,7 @@ test('weekday 8:37 PT is open and 8:20 PT waits', () => {
   assert.equal(evaluateUsSchedule(SAT_ANY, signal(), 15).windowId, 'weekend');
 });
 
-test('weekday daytime opens BTC short sectors and leaves other sectors closed', () => {
+test('weekday BTC short dense is 24/7 and other sectors stay on the three windows', () => {
   const nine = new Date('2026-10-14T16:00:00.000Z');
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'weather' }), 15).open, false);
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'pregame' }), 15).open, false);
@@ -86,8 +86,14 @@ test('weekday daytime opens BTC short sectors and leaves other sectors closed', 
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'btc-misprice' }), 15).open, true);
   assert.equal(evaluateUsSchedule(nine, signal({ sector: 'momentum' }), 15).windowId, 'wd-btc-dense');
   const evening = new Date('2026-10-15T05:00:00.000Z');
-  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).open, false);
-  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'momentum' }), 15).code, 'outside_schedule');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'btc_misprice' }), 15).code, 'weekday_btc_dense');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'momentum' }), 15).windowId, 'wd-btc-dense');
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15).open, false);
+  assert.equal(evaluateUsSchedule(evening, signal({ sector: 'weather' }), 15).code, 'outside_schedule');
+  const early = new Date('2026-10-14T14:30:00.000Z');
+  assert.equal(evaluateUsSchedule(early, signal({ sector: 'momentum' }), 15).open, true);
+  assert.equal(evaluateUsSchedule(early, signal({ sector: 'pregame' }), 15).code, 'outside_schedule');
 });
 
 test('Monday 9:00 PT allows master only', () => {

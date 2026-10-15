@@ -85,7 +85,7 @@ function sessionLabel({ weekend, longDated, weekdaySession, btcShortDense }) {
 /**
  * Weekend: full suite all day.
  * Weekday 08:37/12:37/18:37 PT: full suite (every sector) plus BTC short.
- * Weekday daytime dense window: BTC 15m/1h misprice and 15m momentum only.
+ * Weekday 24/7 BTC short dense: BTC 15m/1h misprice and 15m momentum only (user 2026-10-15).
  * Monday 08:50: long-dated crypto/master, including the overlap with the morning suite.
  */
 export function describeSession(now = new Date(), rules) {

@@ -281,16 +281,25 @@ test('Pacific schedule matches weekday full suite, dense BTC, and weekend sessio
   const lateDay = describeSession(new Date('2026-10-15T02:59:00.000Z'), US_RULES);
   assert.equal(lateDay.btcShortDense, true);
   assert.equal(lateDay.fullSuite, false);
-  const atEight = describeSession(new Date('2026-10-15T03:00:00.000Z'), US_RULES);
-  assert.equal(atEight.label, 'closed');
-  assert.equal(atEight.btcShort, false);
+  const atEightPm = describeSession(new Date('2026-10-15T03:00:00.000Z'), US_RULES);
+  assert.equal(atEightPm.label, 'weekday-btc-dense');
+  assert.equal(atEightPm.btcShort, true);
+  assert.equal(atEightPm.btcShortDense, true);
+  assert.equal(atEightPm.fullSuite, false);
   const early = describeSession(new Date('2026-10-14T14:30:00.000Z'), US_RULES);
-  assert.equal(early.label, 'closed');
-  assert.equal(early.btcShort, false);
+  assert.equal(early.label, 'weekday-btc-dense');
+  assert.equal(early.btcShort, true);
+  assert.equal(early.btcShortDense, true);
   assert.equal(early.fullSuite, false);
-  const closed = describeSession(new Date('2026-10-15T05:00:00.000Z'), US_RULES);
-  assert.equal(closed.label, 'closed');
-  assert.equal(closed.btcShortDense, false);
+  const overnight = describeSession(new Date('2026-10-15T05:00:00.000Z'), US_RULES);
+  assert.equal(overnight.label, 'weekday-btc-dense');
+  assert.equal(overnight.btcShort, true);
+  assert.equal(overnight.btcShortDense, true);
+  assert.equal(overnight.fullSuite, false);
+  const midnight = describeSession(new Date('2026-10-14T07:00:00.000Z'), US_RULES);
+  assert.equal(midnight.btcShortDense, true);
+  assert.equal(midnight.fullSuite, false);
+  assert.equal(midnight.label, 'weekday-btc-dense');
   const weekend = describeSession(new Date('2026-10-17T18:00:00.000Z'), US_RULES);
   assert.equal(weekend.fullSuite, true);
   assert.equal(weekend.btcShort, true);
@@ -326,10 +335,27 @@ test('empty and repeat scans do not write a second SIGNAL', async () => {
   const root = await mkdtemp(join(tmpdir(), 'us-ledger-'));
   const workspace = await mkdtemp(join(tmpdir(), 'us-workspace-'));
   try {
-    const outside = await runUsScan({
-      now: new Date('2026-10-15T05:00:00.000Z'),
+    const overnight = new Date('2026-10-15T05:00:00.000Z');
+    const openNight = await runUsScan({
+      now: overnight,
       ledgerRoot: root,
       workspaceRoot: workspace,
+      loadWindow: async () => ({ market: null })
+    });
+    assert.equal(openNight.published, 0);
+    assert.equal(openNight.session.btcShortDense, true);
+    assert.notEqual(openNight.reason, 'outside-window');
+    const outside = await runUsScan({
+      now: overnight,
+      ledgerRoot: root,
+      workspaceRoot: workspace,
+      rules: {
+        ...US_RULES,
+        schedule: {
+          ...US_RULES.schedule,
+          weekdayBtcDense: { start: '08:00', end: '20:00' }
+        }
+      },
       loadWindow: async () => { throw new Error('should not load'); }
     });
     assert.equal(outside.published, 0);
@@ -478,7 +504,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
   }
 });
 
-test('weekday 08:37 scans the full suite and dense daytime scans BTC only', async () => {
+test('weekday 08:37 scans the full suite and BTC short dense scans BTC only', async () => {
   const root = await mkdtemp(join(tmpdir(), 'us-suite-'));
   const workspace = await mkdtemp(join(tmpdir(), 'us-suite-ws-'));
   const context = {
