@@ -50,7 +50,7 @@ CRON_TZ=America/Los_Angeles
 优先目录：`/workspace/polymarket-ledger/signals/`
 
 - `pending.jsonl`：一行一个待下单 JSON
-- `{sector}-{timestamp}.json`：同一条的单文件，例如 `btc-misprice-20261014T1530Z.json`
+- `{sector}-{timestamp}.json`：同一条的单文件，例如 `btc_misprice-20261014T1530Z.json`。账本里的 BTC 错价板块键是 `btc_misprice`（`btc-misprice` 在比较前会归一成同一个键）。
 
 兼容（只在新 SIGNAL 出现时写，空扫不碰）：
 
@@ -98,11 +98,11 @@ Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。
 - 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。数值置信度低于 0.50（含模型没形成时的 0）才记为 Low；0.50–0.62 记为 Med，0.62 及以上记为 High。显式写成 Low 的模型行仍然跳过。Med 不再从 0.56 起算，避免 15 分钟错价已经有 5 个百分点 edge 却被 `15m:confidence` 静默丢掉。
-- 同一 15 分钟窗口不能一边 Up 一边 Down。错价和动量同时合格时只留错价。
+- 同一 15 分钟窗口不能一边 Up 一边 Down（只挡反方向，同向已有仓不整窗跳过）。错价和动量同时合格时只留错价。
 - 国际站独有盘不入选：ETH、美债收益率、纽约/洛杉矶/芝加哥/迈阿密/旧金山以外的城市气温。
 - `picks.jsonl` 里已有同一市场、同一方向，不再入选。
 
-仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge。现金扣掉本笔后必须仍 ≥ $15；账本里没有 `account.json` 的 `cash_usd` 时，bot 下单前自己核这笔现金。
+仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge（门槛 ×1.5，SCAN_SPEC v3.2 `weakEdgeMultiplier`，不是 +0.02）。现金扣掉本笔后必须仍 ≥ $15。现金门只认 `buyingPower`；`account.json` 里没有 `buyingPower` 时，扫描不拿 `cash_usd` 或 `currentBalance` 顶上，由 bot 下单前再核购买力。
 
 日帽按太平洋时间自然日，计该板块真实成交加未过期 pending：Live 10、动量 15、BTC 错价 8、赛前 6、天气 4、宏观 3、加密 4、master 4。
 

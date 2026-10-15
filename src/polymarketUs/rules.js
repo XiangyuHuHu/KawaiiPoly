@@ -5,6 +5,8 @@
  * The bot may send the limit order without another chat confirmation.
  */
 
+import { US_BBO_MAX_AGE_MS } from './constants.js';
+
 export const US_SPEC_VERSION = '3.2';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
@@ -29,7 +31,8 @@ export const US_RULES = Object.freeze({
     nonBtcNonLive: 0.03,
     btcMisprice: 0.05,
     btcMispriceRequiresFreshBbo: true,
-    bboMaxAgeMs: 15_000,
+    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。SCAN_SPEC v3.2：BTC 错价 BBO 不超过 15 秒。
+    bboMaxAgeMs: US_BBO_MAX_AGE_MS,
     // Plan2 15m momentum distance is 8 bps. v3.2 uses half of that trigger.
     momentumOriginalDistanceBps: 8,
     momentumDistanceBps: 4,
@@ -120,6 +123,21 @@ export const US_RULES = Object.freeze({
 });
 
 export const US_SECTORS = Object.freeze(Object.keys(US_RULES.dailyCaps));
+
+/**
+ * SCAN_SPEC v3.2 `edge.weakEdgeMultiplier`（1.5）。
+ * 冷板块（胜率 < size.weakWinRate，或连亏 ≥ size.lossStreak）把该板块 edge 门槛乘 1.5。
+ * 不用曾经的 +0.02。尾盘没有 edge 门槛，不乘这个系数，模型地板仍是 0.88。
+ * 扫描 minEdgeFor 与下单 evaluateUsSignal 都调用这里。
+ */
+export function cleanerEdgeFloor(baseEdge, cold, rules = US_RULES) {
+  const base = Number(baseEdge);
+  if (!Number.isFinite(base)) return null;
+  if (!cold) return base;
+  const multiplier = Number(rules?.edge?.weakEdgeMultiplier);
+  const factor = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1.5;
+  return Math.round(base * factor * 1e4) / 1e4;
+}
 
 export function isIntlHost(url) {
   const text = String(url || '').toLowerCase();

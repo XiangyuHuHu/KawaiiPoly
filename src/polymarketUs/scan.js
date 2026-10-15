@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { btcResolutionRisk, evaluateUsSignal, rankConfidenceScore, sidePolarity } from './evaluate.js';
 import { eventSlug } from './gateway.js';
 import { US_RULES } from './rules.js';
+import { normalizeSector } from './shape.js';
 import {
   publishUsSignal,
   readJsonl,
@@ -27,14 +28,35 @@ function round4(value) {
   return Math.round(Number(value) * 1e4) / 1e4;
 }
 
-async function readAccountCash(path) {
+/** 扫描现金门只认 buyingPower。cash_usd / currentBalance 不能开仓；缺购买力时留给下单例程。 */
+async function readAccountBuyingPower(path) {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8'));
-    return finite(parsed?.cash_usd ?? parsed?.cashUsd);
+    return finite(parsed?.buyingPower ?? parsed?.buying_power);
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
+}
+
+function sameSector(left, right) {
+  const a = normalizeSector(left);
+  const b = normalizeSector(right);
+  return Boolean(a) && a === b;
+}
+
+const COUNTED_FILL = new Set(['submitted', 'filled', 'partial']);
+
+function rowPtDate(row) {
+  if (row?.pt_date) return String(row.pt_date);
+  const match = String(row?.time_pt || '').match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : null;
+}
+
+function isDailyFill(row, ptDate) {
+  if (row?.dry_run === true) return false;
+  if (rowPtDate(row) !== ptDate) return false;
+  return COUNTED_FILL.has(row.status) || COUNTED_FILL.has(row.fill_status);
 }
 
 function lossStreak(rows) {
@@ -50,21 +72,23 @@ function lossStreak(rows) {
 
 export async function loadSectorStats(ledgerRoot, sector, now = new Date()) {
   const paths = usPaths(ledgerRoot);
-  const [orders, trials, pending, picks, cashUsd] = await Promise.all([
+  const [orders, trials, pending, picks, buyingPower] = await Promise.all([
     readJsonl(paths.realOrders),
     readJsonl(paths.momentumTrials),
     readJsonl(paths.pending),
     readJsonl(paths.picks),
-    readAccountCash(paths.account)
+    readAccountBuyingPower(paths.account)
   ]);
   const ptDate = ptDateKey(now);
-  const filled = [...orders, ...trials].filter((row) => isUsFill(row) && row.sector === sector);
+  const filled = [...orders, ...trials].filter((row) => (
+    isUsFill(row) && row.dry_run !== true && sameSector(row.sector, sector)
+  ));
   const settled = filled.filter((row) => row.won === true || row.won === false);
   const wins = settled.filter((row) => row.won === true).length;
   const losses = settled.filter((row) => row.won === false).length;
-  const dailyFilled = filled.filter((row) => row.status === 'filled' && row.pt_date === ptDate).length;
+  const dailyFilled = filled.filter((row) => isDailyFill(row, ptDate)).length;
   const dailyPending = pending.filter((row) => (
-    row.sector === sector
+    sameSector(row.sector, sector)
     && row.status === 'pending'
     && row.pt_date === ptDate
     && Date.parse(row.expires_at || '') > now.getTime()
@@ -76,7 +100,7 @@ export async function loadSectorStats(ledgerRoot, sector, now = new Date()) {
     record: { wins, losses, lossStreak: lossStreak(settled) },
     dailyFilled,
     dailyPending,
-    cashUsd,
+    buyingPower,
     openWindows,
     ptDate,
     dailyOrders: countDayOrders([...orders, ...trials, ...pending], ptDate, now),
@@ -208,9 +232,8 @@ export function btcCandidatesFromContext({
   const expiresAt = market?.assetPriceTerms?.windowEnd || window.end.toISOString();
   const resolutionRisk = btcResolutionRisk(market);
   const openWindows = [...(mispriceStats?.openWindows || []), ...(momentumStats?.openWindows || [])];
-  if (openWindows.some((row) => row.windowId === windowId)) {
-    return { signals: [], skipped: ['window-open'] };
-  }
+  // SCAN_SPEC v3.2 §5 / rules.oneSided：同一窗口只挡反方向，不因同向已有仓整窗跳过。
+  // 反方向由 evaluateUsSignal 的 one-sided 拒绝。
   const picks = mispriceStats?.picks || momentumStats?.picks || [];
   const dailyOrders = mispriceStats?.dailyOrders ?? momentumStats?.dailyOrders ?? null;
   const shared = {
@@ -253,7 +276,7 @@ export function btcCandidatesFromContext({
         record: stats.record,
         dailyFilled: stats.dailyFilled,
         dailyPending: stats.dailyPending,
-        cashUsd: stats.cashUsd,
+        buyingPower: stats.buyingPower,
         openWindows,
         dailyOrders,
         alreadyPicked: isAlreadyPicked(picks, slug, side.side)
@@ -410,7 +433,7 @@ export async function runUsScan({
         dailyFilled: stats.dailyFilled,
         dailyPending: stats.dailyPending,
         dailyOrders: stats.dailyOrders,
-        cashUsd: stats.cashUsd,
+        buyingPower: stats.buyingPower,
         openWindows: stats.openWindows,
         alreadyPicked: isAlreadyPicked(stats.picks, model.slug, model.side),
         basis: forumBasis(model, freshForum)
