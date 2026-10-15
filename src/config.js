@@ -971,6 +971,13 @@ function buildPolymarketConfig() {
     plan17MaxNewPerScan: Number(process.env.POLYMARKET_PLAN17_MAX_NEW_PER_SCAN || 6),
     plan17LoopMs: Number(process.env.POLYMARKET_PLAN17_LOOP_MS || 120000),
     plan17FeeRate: Number(process.env.POLYMARKET_PLAN17_FEE_RATE || 0.07),
+    // Plan20 is paper-only; empty mined rules intentionally make it a no-op.
+    plan20Enabled: process.env.POLYMARKET_PLAN20_ENABLED === 'true',
+    plan20NewEntriesEnabled: false,
+    plan20StartingCash: 500,
+    plan20OrderUsd: 2,
+    plan20MaxOpen: 40,
+    plan20CashFloor: 10,
     // Plan18（梅花易数）/ Plan19（小六壬）：算卦随机对照组，配置项同构。
     ...divinationPlanConfig('plan18', 'POLYMARKET_PLAN18'),
     ...divinationPlanConfig('plan19', 'POLYMARKET_PLAN19'),

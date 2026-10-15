@@ -1,4 +1,4 @@
-export const ACTIVE_PAPER_PLAN_IDS = Object.freeze(['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19']);
+export const ACTIVE_PAPER_PLAN_IDS = Object.freeze(['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20']);
 
 export function paperPlanFlags(planId, config = {}) {
   return {

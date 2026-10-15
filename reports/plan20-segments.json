@@ -1,0 +1,132 @@
+{
+  "schemaVersion": 1,
+  "source": "/tmp/settled-snapshot.db",
+  "rows": 4760,
+  "trainN": 3332,
+  "holdoutN": 1428,
+  "splitAt": "2026-10-14T14:21:07.748Z",
+  "eligibleTests": 281,
+  "shortlist": [
+    {
+      "rule": {
+        "plan_id": "plan18",
+        "price": ".20-.35"
+      },
+      "train": {
+        "n": 179,
+        "roi": 0.4754358974358975,
+        "winrate": 0.4022346368715084,
+        "t": 2.696575244919568
+      },
+      "holdout": {
+        "n": 86,
+        "roi": -0.15510638297872342,
+        "winrate": 0.27906976744186046,
+        "t": -0.470085881756948
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    },
+    {
+      "rule": {
+        "price": ".20-.35",
+        "symbol": "XRP"
+      },
+      "train": {
+        "n": 82,
+        "roi": 0.5241860465116278,
+        "winrate": 0.43902439024390244,
+        "t": 2.408543911819405
+      },
+      "holdout": {
+        "n": 41,
+        "roi": -0.08365853658536589,
+        "winrate": 0.2682926829268293,
+        "t": -0.3442869832137737
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    },
+    {
+      "rule": {
+        "price": ".20-.35",
+        "direction": "up"
+      },
+      "train": {
+        "n": 214,
+        "roi": 0.39081196581196587,
+        "winrate": 0.38317757009345793,
+        "t": 2.547978374132658
+      },
+      "holdout": {
+        "n": 85,
+        "roi": 0.09709677419354835,
+        "winrate": 0.36470588235294116,
+        "t": 1.1417297873926995
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    },
+    {
+      "rule": {
+        "plan_id": "plan19",
+        "hour": "4-8"
+      },
+      "train": {
+        "n": 281,
+        "roi": 0.2566568914956014,
+        "winrate": 0.5907473309608541,
+        "t": 2.767481290029011
+      },
+      "holdout": {
+        "n": 168,
+        "roi": -0.507361111111111,
+        "winrate": 0.23214285714285715,
+        "t": -6.747995994079233
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    },
+    {
+      "rule": {
+        "direction": "down",
+        "hour": "8-12"
+      },
+      "train": {
+        "n": 240,
+        "roi": 0.23799382716049405,
+        "winrate": 0.5958333333333333,
+        "t": 2.1429445581659494
+      },
+      "holdout": {
+        "n": 76,
+        "roi": 0.12132352941176468,
+        "winrate": 0.5526315789473685,
+        "t": -0.2416501893294965
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    },
+    {
+      "rule": {
+        "price": ".20-.35",
+        "hour": "12-16"
+      },
+      "train": {
+        "n": 54,
+        "roi": 0.7392592592592593,
+        "winrate": 0.5,
+        "t": 3.04856711790111
+      },
+      "holdout": {
+        "n": 26,
+        "roi": 0.52,
+        "winrate": 0.46153846153846156,
+        "t": 1.5578726793610622
+      },
+      "keep": false,
+      "reason": "fails conservative train multiplicity guard"
+    }
+  ],
+  "rules": []
+}

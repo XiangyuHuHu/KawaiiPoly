@@ -1,3 +1,4 @@
+import { PLAN20_ID, evaluatePlan20Candidate, plan20ScanDecision } from './polymarketPlan20.js';
 ﻿import { mkdir, readdir, readFile, rename, unlink, writeFile, stat } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { appendFile } from 'node:fs/promises';
@@ -98,7 +99,7 @@ import {
   resolveEntrySizeScale
 } from './streakSizing.js';
 
-export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan3', 'plan3_5', 'plan3_6', 'plan5'];
+export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan3', 'plan3_5', 'plan3_6', 'plan5'];
 export const PAPER_ORDERS_HARD_CAP = 500;
 const PLAN2_STRATEGY_VERSIONS = Object.freeze({
   plan2: 'plan2_classic_v20260729',
@@ -532,6 +533,7 @@ const DEFAULT_STATE = {
     plan17: freshPlanBucket('plan17'),
     plan18: freshPlanBucket('plan18'),
     plan19: freshPlanBucket('plan19'),
+    plan20: freshPlanBucket('plan20'),
     plan3: freshPlanBucket('plan3'),
     plan3_5: freshPlanBucket('plan3_5'),
     plan3_6: freshPlanBucket('plan3_6'),
@@ -1545,7 +1547,7 @@ export class PolymarketTradingService {
     }
     // Plan14 is a forward-validation experiment. Historical selection alone
     // can never put it into the live scheduler.
-    enabled = enabled.filter((planId) => planId !== PLAN14_ID && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID);
+    enabled = enabled.filter((planId) => planId !== PLAN20_ID && planId !== PLAN14_ID && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID);
     if (this.config.plan5Enabled !== true) {
       enabled = enabled.filter((planId) => planId !== 'plan5');
     }
@@ -1729,6 +1731,7 @@ export class PolymarketTradingService {
     if (id === PLAN11_ID && enabled && this.config.plan11Enabled === false) {
       throw new Error('Plan11 已禁用（POLYMARKET_PLAN11_ENABLED=false）。');
     }
+    if (id === PLAN20_ID && enabled) throw new Error('Plan20 is paper-only.');
     if (id === PLAN14_ID && enabled) {
       throw new Error('Plan14 仅用于前向模拟验证，当前禁止实盘。');
     }
@@ -4514,6 +4517,7 @@ export class PolymarketTradingService {
     let planId = this.normalizePlanId(options.planId || 'plan1');
     if (planId === 'plan2') planId = 'plan2_5';
     const bucket = this.getBucket(planId);
+    if (enabled && planId === PLAN20_ID) throw new Error('Plan20 has no surviving segments; entries disabled.');
     if (enabled && planId === 'plan5' && this.config.plan5Enabled === false) {
       throw new Error('Plan5 已停用：历史实盘负期望，默认不再开仓。');
     }
@@ -4572,6 +4576,21 @@ export class PolymarketTradingService {
     }
     await this.persist(planId);
     return { planId, ...bucket.auto };
+  }
+
+  async createPlan20PaperOrder(input = {}) {
+    const decision = evaluatePlan20Candidate(input);
+    if (!decision.ok) return null;
+    // Re-mining requires a reviewed source-market entry adapter before any fill.
+    throw new Error('Plan20 entry adapter required.');
+  }
+
+  async runPlan20PaperScan() {
+    const decision = plan20ScanDecision();
+    const bucket = this.getBucket(PLAN20_ID);
+    bucket.auto = { ...bucket.auto, lastAction: 'skip', lastReason: decision.reason, lastRunAtIso: new Date().toISOString() };
+    await this.persist(PLAN20_ID);
+    return decision;
   }
 
   async createPlan15PaperOrder(input = {}) {
@@ -5090,6 +5109,7 @@ export class PolymarketTradingService {
 
   async createPaperOrder(input, planId = 'plan1') {
     const id = this.normalizePlanId(planId || input.planId || input.plan?.planId || 'plan1');
+    if (id === PLAN20_ID) return this.createPlan20PaperOrder(input);
     this.ensurePortfolioReady(id);
     this.ensureDailyLossBudget(id);
     const bucket = this.getBucket(id);
@@ -6831,7 +6851,7 @@ export class PolymarketTradingService {
       }
     }
 
-    const memoryIds = (scopeIds || ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19']).filter((id) => ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(id));
+    const memoryIds = (scopeIds || ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20']).filter((id) => ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20'].includes(id));
     if (wantPaper && memoryIds.length) {
       const seen = new Set(orders.map((order) => String(order.id)));
       const cutoffMs = Date.now() - days * 86_400_000;
@@ -6858,7 +6878,8 @@ export class PolymarketTradingService {
       plan16: this.summarizePaperInventory('plan16'),
       plan17: this.summarizePaperInventory('plan17'),
       plan18: this.summarizePaperInventory('plan18'),
-      plan19: this.summarizePaperInventory('plan19')
+      plan19: this.summarizePaperInventory('plan19'),
+      plan20: this.summarizePaperInventory('plan20')
     };
 
     let plan3LossAnalytics = null;
@@ -8287,6 +8308,7 @@ export class PolymarketTradingService {
   }
 
   async createLiveOrder(input = {}) {
+    if ([input.planId, input.draft?.planId, input.planView?.planId, input.planView?.plan?.planId].some(id => String(id).toLowerCase() === PLAN20_ID)) throw new Error('Plan20 is paper-only.');
     if (input.planView) {
       const { submitLiveOrderFromPlan } = await import('./polymarketLiveOrder.js');
         return submitLiveOrderFromPlan({

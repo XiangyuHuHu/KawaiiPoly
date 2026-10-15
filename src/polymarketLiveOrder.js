@@ -350,6 +350,7 @@ export async function submitPolymarketLiveOrder({
   knownClobBalanceUsdc = null,
   tradingService = null
 }) {
+  if (String(draft?.planId).toLowerCase() === 'plan20') throw new Error('Plan20 is paper-only.');
   validateLiveOrderSubmission({ config });
 
   const readiness = readinessInput || await buildPolymarketReadiness(config);
@@ -511,6 +512,7 @@ export async function submitLiveOrderFromPlan({
   knownClobBalanceUsdc = null,
   readiness: readinessInput = null
 }) {
+  if ([planView?.planId, planView?.plan?.planId].some(id => String(id).toLowerCase() === 'plan20')) throw new Error('Plan20 is paper-only.');
   validateLiveOrderSubmission({ config });
 
   const readiness = readinessInput || await buildPolymarketReadiness(config);
