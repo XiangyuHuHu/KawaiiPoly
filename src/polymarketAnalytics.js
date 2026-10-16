@@ -78,6 +78,23 @@ function plan16PriceBand(price) {
   return '60–80¢';
 }
 
+function plan21WindowLabel(order) {
+  const minutes = Number(order.plan21Entry?.windowMinutes);
+  if (minutes === 4) return '还剩约 4 分钟 · 20–35¢';
+  if (minutes === 3) return '还剩约 3 分钟 · 10–20¢';
+  if (minutes === 2) return '还剩约 2 分钟 · 10–35¢';
+  return '未知窗口';
+}
+
+function plan21PriceBand(price) {
+  const p = Number(price);
+  if (!Number.isFinite(p)) return '未知';
+  if (p < 0.10) return '<10¢';
+  if (p < 0.20) return '10–20¢';
+  if (p < 0.35) return '20–35¢';
+  return '≥35¢';
+}
+
 function plan17PriceBand(price) {
   const p = Number(price);
   if (!Number.isFinite(p)) return '未知';
@@ -863,7 +880,7 @@ export function buildPolymarketAnalyticsDashboard({
         : null
     };
   }
-  const showCurrent = !planId || ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(planId);
+  const showCurrent = !planId || ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId);
   if (showCurrent && (!planId || planId === 'current' || planId === 'plan14')) {
     const plan14Orders = filtered.filter((order) => order.planId === 'plan14');
     planSpecific.plan14 = {
@@ -907,6 +924,14 @@ export function buildPolymarketAnalyticsDashboard({
       byLiuren: bucketSettledOrders(orders, (order) => `小六壬 ${order.plan18Divination?.liuren?.name || '未知'} · 买${order.outcome || ''}`),
       byAgreement: bucketSettledOrders(orders, (order) => (order.plan18Divination?.agree ? '两法一致' : '两法相反')),
       open: positionInventory?.[id] || null
+    };
+  }
+  if (showCurrent && (!planId || planId === 'current' || planId === 'plan21')) {
+    const plan21Orders = filtered.filter((order) => order.planId === 'plan21');
+    planSpecific.plan21 = {
+      byWindow: bucketSettledOrders(plan21Orders, plan21WindowLabel),
+      byPrice: bucketSettledOrders(plan21Orders, (order) => plan21PriceBand(order.limitPrice ?? order.entryPrice)),
+      open: positionInventory?.plan21 || null
     };
   }
 

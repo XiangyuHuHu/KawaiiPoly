@@ -28,6 +28,7 @@ import { PLAN17_COINS, plan17MarketDataSkipReason, createPlan17FailureLogger, pa
 import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
 import { PLAN20_BOOK_PRESCREEN, plan20ExecutableQuotes, plan20QuotesFromGamma } from './src/polymarketPlan20.js';
+import { evaluatePlan21 } from './src/polymarketPlan21.js';
 import {
   blendPlan5LockStrengthStats,
   buildPolymarketPaperPlan5
@@ -254,6 +255,18 @@ if (config.polymarket.enabled) {
         console.error(`Plan20 paper scan failed: ${error.message}`);
       });
     }, Math.max(15_000, Number(config.polymarket.plan20LoopMs) || 60_000));
+  }
+  if (config.polymarket.plan21Enabled !== false) {
+    setTimeout(() => ensurePlan21PaperRunning()
+      .then(() => runPlan21PaperScan())
+      .catch((error) => {
+        console.error(`Plan21 paper ensure failed: ${error.message}`);
+      }), 8000);
+    setInterval(() => {
+      runPlan21PaperScan().catch((error) => {
+        console.error(`Plan21 paper scan failed: ${error.message}`);
+      });
+    }, Math.max(10_000, Number(config.polymarket.plan21LoopMs) || 15_000));
   }
 }
 
@@ -620,7 +633,7 @@ async function handleApi(request, response, url) {
     );
     const normalizedSource = ['live', 'paper', 'all'].includes(source) ? source : 'paper';
     const categorySymbols = ['体育', '电竞', '天气', '政治选举', '宏观金融', '加密事件'];
-    const currentPlanIds = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19'];
+    const currentPlanIds = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'];
     const normalizedPlan = PLAN_IDS.includes(planParam) ? planParam : null;
     const planIds = planParam === 'current'
       ? currentPlanIds
@@ -3813,7 +3826,7 @@ async function runPolymarketAutoTickForPlans(planIds = [], { tickContext = null 
 
 async function runPolymarketAutoTickForSinglePlan(rawId, { tickContext = null } = {}) {
   const id = normalizePaperPlanId(rawId);
-  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(id)) return [];
+  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(id)) return [];
   const bucket = polymarketTrading.status(id);
   const mainEnabled = bucket.auto.enabled && (id !== 'plan14' || config.polymarket.plan14NewEntriesEnabled === true);
   if (!mainEnabled && !(id === 'plan14' && polymarketTrading.plan14ProfitExperimentEnabled())) return [];
@@ -4199,7 +4212,7 @@ async function runPolymarketSettlementLoop() {
     }
     const settledAll = [];
     for (const planId of PLAN_IDS) {
-      const resolver = ['plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(planId)
+      const resolver = ['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId)
         ? resolvePlan15SettlementOutcome
         : resolvePolymarketSettlementOutcome;
       const settled = await polymarketTrading.settleOpenOrders(planId, resolver);
@@ -5216,6 +5229,117 @@ async function runPlan18PaperScan(planId = 'plan18') {
   }
 }
 
+async function ensurePlan21PaperRunning() {
+  if (config.polymarket.plan21Enabled === false) return;
+  if (config.polymarket.plan21NewEntriesEnabled !== true) {
+    if (polymarketTrading.statusForPlan('plan21')?.auto?.enabled) {
+      await polymarketTrading.setAuto(false, { planId: 'plan21' });
+      console.log('Plan21 new entries disabled; paper auto stopped. Open orders still settle.');
+    }
+    return;
+  }
+  if (!polymarketTrading.statusForPlan('plan21')?.portfolio?.portfolioInitialized) {
+    await polymarketTrading.configurePortfolio({
+      planId: 'plan21',
+      cash: Number(config.polymarket.plan21StartingCash) || 500
+    });
+  }
+  if (polymarketTrading.statusForPlan('plan21')?.auto?.enabled !== true) {
+    await polymarketTrading.setAuto(true, { planId: 'plan21', timeframes: ['5m'] });
+  }
+}
+
+let plan21ScanRunning = false;
+
+async function runPlan21PaperScan() {
+  if (plan21ScanRunning || config.polymarket.plan21Enabled === false) return { bought: 0 };
+  if (config.polymarket.plan21NewEntriesEnabled !== true) return { bought: 0 };
+  const status = polymarketTrading.statusForPlan('plan21');
+  if (status?.auto?.enabled !== true || status?.portfolio?.portfolioInitialized !== true) return { bought: 0 };
+  plan21ScanRunning = true;
+  const bought = [];
+  try {
+    const pm = config.polymarket;
+    const usd = Math.max(1, Number(pm.plan21OrderUsd) || 5);
+    const bucket = polymarketTrading.getBucket('plan21');
+    if ((Number(bucket.portfolio?.cash) || 0) + 0.005 < usd) {
+      if (bucket.auto?.lastReason !== '现金不足') await polymarketTrading.notePlan21Scan({ reason: '现金不足', bought: 0 });
+      return { bought: 0 };
+    }
+    const held = new Set((bucket.paperOrders || []).map((order) => order.marketSlug).filter(Boolean));
+    const symbols = pm.plan21Symbols?.length ? pm.plan21Symbols : ['BTC', 'ETH'];
+    const slugs = symbols.map((symbol) => plan18ShortSlug(symbol, '5m')).filter((slug) => slug && !held.has(slug));
+    if (!slugs.length) return { bought: 0 };
+    const events = (await Promise.all(slugs.map((slug) => polymarketClient
+      .gammaRequest('/events', { slug })
+      .then((rows) => (Array.isArray(rows) ? rows[0] : null))
+      .catch(() => null)))).filter(Boolean);
+    const tokenIds = events.flatMap((event) => asJsonList(event.markets?.[0]?.clobTokenIds).map(String));
+    const books = tokenIds.length ? await polymarketClient.getOrderBooks(tokenIds).catch(() => []) : [];
+    const bookByToken = new Map();
+    for (const raw of books) {
+      const tokenId = String(raw?.asset_id || raw?.assetId || raw?.token_id || raw?.tokenId || '');
+      if (tokenId) bookByToken.set(tokenId, normalizeOrderBook(raw));
+    }
+    const skips = [];
+    for (const event of events) {
+      const market = event.markets?.[0];
+      const outcomes = asJsonList(market?.outcomes).map((name) => String(name));
+      const tokens = asJsonList(market?.clobTokenIds).map(String);
+      const upIndex = outcomes.findIndex((name) => name.toLowerCase() === 'up');
+      const downIndex = outcomes.findIndex((name) => name.toLowerCase() === 'down');
+      const endMs = Date.parse(market?.endDate || event?.endDate || '');
+      const decision = evaluatePlan21({
+        upBook: bookByToken.get(tokens[upIndex]),
+        downBook: bookByToken.get(tokens[downIndex]),
+        endMs,
+        maxSpread: Number(pm.plan21MaxSpread) || 0.04
+      });
+      if (!decision.ok) {
+        if (decision.reason !== 'outside_window') skips.push(`${event.slug} ${decision.reason}`);
+        continue;
+      }
+      const index = decision.outcome === 'Up' ? upIndex : downIndex;
+      const symbol = /eth/i.test(String(event.slug || market?.slug || '')) ? 'ETH' : 'BTC';
+      let order;
+      try {
+        order = await polymarketTrading.createPlan21PaperOrder({
+          symbol,
+          outcome: outcomes[index] || decision.outcome,
+          tokenId: tokens[index],
+          ask: decision.ask,
+          marketSlug: String(market?.slug || event.slug),
+          conditionId: market?.conditionId || null,
+          title: market?.question || event.title || event.slug,
+          startIso: market?.eventStartTime || null,
+          endDate: new Date(endMs).toISOString(),
+          windowMinutes: decision.windowMinutes,
+          minutesLeft: decision.minutesLeft,
+          low: decision.low,
+          high: decision.high,
+          usd
+        });
+      } catch (error) {
+        if (/现金不足/.test(error.message || '')) break;
+        skips.push(error.message);
+        continue;
+      }
+      if (!order) continue;
+      bought.push(order);
+      console.log(`Polymarket plan21 paper order: ${order.symbol} ${order.outcome} $${order.usd} at ${order.limitPrice} · window ${decision.windowMinutes}m`);
+    }
+    if (bought.length || skips.length) {
+      const reason = bought.length
+        ? `本轮买入落后方 ${bought.length} 笔 · ${bought.map((order) => `${order.symbol} ${order.outcome} $${order.usd}`).join(' · ')}`
+        : `本轮未下单（${skips.join('，')}）`;
+      await polymarketTrading.notePlan21Scan({ reason, bought: bought.length });
+    }
+    return { bought: bought.length };
+  } finally {
+    plan21ScanRunning = false;
+  }
+}
+
 function anyPolymarketLiveCoreAutoEnabled() {
   const auto = polymarketTrading.liveAutoStatus();
   if (!auto?.enabled) return false;
@@ -5470,6 +5594,12 @@ function scheduleIsolatedPaperPlanTick(planId) {
   if (id === 'plan18' || id === 'plan19') {
     runPlan18PaperScan(id).catch((error) => {
       console.error(`${id} paper scan failed: ${error.message}`);
+    });
+    return;
+  }
+  if (id === 'plan21') {
+    runPlan21PaperScan().catch((error) => {
+      console.error(`Plan21 paper scan failed: ${error.message}`);
     });
     return;
   }

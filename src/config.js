@@ -984,6 +984,14 @@ function buildPolymarketConfig() {
     // Plan18（梅花易数）/ Plan19（小六壬）：算卦随机对照组，配置项同构。
     ...divinationPlanConfig('plan18', 'POLYMARKET_PLAN18'),
     ...divinationPlanConfig('plan19', 'POLYMARKET_PLAN19'),
+    plan21Enabled: process.env.POLYMARKET_PLAN21_ENABLED !== 'false',
+    plan21NewEntriesEnabled: process.env.POLYMARKET_PLAN21_NEW_ENTRIES_ENABLED === 'true',
+    plan21StartingCash: Number(process.env.POLYMARKET_PLAN21_STARTING_CASH || 500),
+    plan21OrderUsd: Number(process.env.POLYMARKET_PLAN21_ORDER_USD || 5),
+    plan21MaxSpread: Number(process.env.POLYMARKET_PLAN21_MAX_SPREAD || 0.04),
+    plan21Symbols: String(process.env.POLYMARKET_PLAN21_SYMBOLS || 'BTC,ETH')
+      .split(',').map((item) => item.trim().toUpperCase()).filter((item) => ['BTC', 'ETH'].includes(item)),
+    plan21LoopMs: Number(process.env.POLYMARKET_PLAN21_LOOP_MS || 15000),
     // Plan13 v2 — 仅 15m standard；65–88¢；费后正期望单机会；确认止损且不反手。
     plan13Enabled: process.env.POLYMARKET_PLAN13_ENABLED !== 'false',
     plan13LiveEnabled: process.env.POLYMARKET_PLAN13_LIVE_ENABLED === 'true',

@@ -110,17 +110,17 @@ test('paper page shows Plan14 and Plan15', () => {
   assert.match(html, /data-plan-tab="plan14"/);
   assert.match(html, /data-plan="plan14"/);
   const tabs = [...html.matchAll(/data-plan-tab="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(tabs, ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19']);
+  assert.deepEqual(tabs, ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21']);
   for (const retired of ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan12', 'plan13']) {
     assert.doesNotMatch(html, new RegExp(`data-plan-tab="${retired}"`));
     assert.doesNotMatch(html, new RegExp(`data-plan="${retired}"`));
   }
   assert.doesNotMatch(analyticsHtml, /data-plan-tab="plan3_5"/);
   const analyticsTabs = [...analyticsHtml.matchAll(/data-plan-tab="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(analyticsTabs, ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19']);
+  assert.deepEqual(analyticsTabs, ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21']);
   assert.doesNotMatch(html, /href="\/polymarket-plan(4|7|8|9|10)\.html"/);
   assert.doesNotMatch(html, /跟单/);
-  assert.match(js, /PAPER_PLAN_IDS = \['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19'\]/);
+  assert.match(js, /PAPER_PLAN_IDS = \['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'\]/);
   assert.doesNotMatch(js, /plan3_5/);
   assert.doesNotMatch(js, /plan3-events/);
   assert.doesNotMatch(js, /THREE_COIN/);

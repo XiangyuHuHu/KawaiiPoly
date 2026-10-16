@@ -73,6 +73,7 @@ import { PLAN15_ID, PLAN15_VERSION } from './polymarketPlan15.js';
 import { PLAN16_ID, PLAN16_VERSION } from './polymarketPlan16.js';
 import { PLAN17_ID, PLAN17_VERSION } from './polymarketPlan17.js';
 import { PLAN18_ID, PLAN19_ID, DIVINATION_PLANS, DIVINATION_PLAN_IDS } from './polymarketPlan18.js';
+import { PLAN21_ID, PLAN21_VERSION } from './polymarketPlan21.js';
 import { resolvePlan2ExitLockThresholds } from './fiveMinuteDecision.js';
 import { buildConfidenceCalibrationTable } from './polymarketCalibration.js';
 import { computeDynamicExitPrices, computeTradeEdge, resolveStopLossAbsoluteFloor, updateAndEvaluateTrailingTakeProfit } from './polymarketSizing.js';
@@ -107,7 +108,7 @@ import {
   resolveEntrySizeScale
 } from './streakSizing.js';
 
-export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan3', 'plan3_5', 'plan3_6', 'plan5'];
+export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan21', 'plan3', 'plan3_5', 'plan3_6', 'plan5'];
 export const PAPER_ORDERS_HARD_CAP = 500;
 const PLAN2_STRATEGY_VERSIONS = Object.freeze({
   plan2: 'plan2_classic_v20260729',
@@ -542,6 +543,7 @@ const DEFAULT_STATE = {
     plan18: freshPlanBucket('plan18'),
     plan19: freshPlanBucket('plan19'),
     plan20: freshPlanBucket('plan20'),
+    plan21: freshPlanBucket('plan21'),
     plan3: freshPlanBucket('plan3'),
     plan3_5: freshPlanBucket('plan3_5'),
     plan3_6: freshPlanBucket('plan3_6'),
@@ -1555,7 +1557,7 @@ export class PolymarketTradingService {
     }
     // Plan14 is a forward-validation experiment. Historical selection alone
     // can never put it into the live scheduler.
-    enabled = enabled.filter((planId) => planId !== PLAN20_ID && planId !== PLAN14_ID && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID);
+    enabled = enabled.filter((planId) => planId !== PLAN20_ID && planId !== PLAN21_ID && planId !== PLAN14_ID && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID);
     if (this.config.plan5Enabled !== true) {
       enabled = enabled.filter((planId) => planId !== 'plan5');
     }
@@ -1754,6 +1756,9 @@ export class PolymarketTradingService {
     }
     if ((id === PLAN18_ID || id === PLAN19_ID) && enabled) {
       throw new Error(`${id === PLAN18_ID ? 'Plan18' : 'Plan19'} 是随机对照组，禁止实盘。`);
+    }
+    if (id === PLAN21_ID && enabled) {
+      throw new Error('Plan21 只用于 5 分钟落后方的模拟，禁止实盘。');
     }
     if (id === PLAN13_ID && enabled && this.config.plan13LiveEnabled !== true) {
       throw new Error('Plan13 实盘需 POLYMARKET_PLAN13_LIVE_ENABLED=true。');
@@ -4555,6 +4560,9 @@ export class PolymarketTradingService {
     if (enabled && planId === PLAN19_ID && this.config.plan19Enabled === false) {
       throw new Error('Plan19 已禁用（POLYMARKET_PLAN19_ENABLED=false）。');
     }
+    if (enabled && planId === PLAN21_ID && this.config.plan21Enabled === false) {
+      throw new Error('Plan21 已禁用（POLYMARKET_PLAN21_ENABLED=false）。');
+    }
     if (enabled && planId === PLAN13_ID && this.config.plan13Enabled === false) {
       throw new Error('Plan13 已禁用（POLYMARKET_PLAN13_ENABLED=false）。');
     }
@@ -5099,6 +5107,76 @@ export class PolymarketTradingService {
     bucket.paperOrders = keep;
     await this.persist(id);
     return { archived: stale.length };
+  }
+
+  async createPlan21PaperOrder(input = {}) {
+    const id = PLAN21_ID;
+    if (this.config.plan21Enabled === false) throw new Error('Plan21 已禁用。');
+    this.ensurePortfolioReady(id);
+    const ask = Number(input.ask);
+    const usd = round2(Number(input.usd));
+    if (!(ask > 0 && ask < 1) || !(usd > 0)) throw new Error('Plan21 报价或金额无效。');
+    const bucket = this.getBucket(id);
+    if (bucket.portfolio.cash + 0.005 < usd) throw new Error('Plan21 现金不足。');
+    const slug = String(input.marketSlug || '');
+    if (!slug) throw new Error('Plan21 缺少市场。');
+    if (bucket.paperOrders.some((order) => order.marketSlug === slug)) return null;
+    const draft = applyPaperEntryTakerFee({
+      planId: id,
+      symbol: input.symbol || 'BTC',
+      timeframe: '5m',
+      outcome: String(input.outcome || ''),
+      direction: String(input.outcome || '').toLowerCase() === 'up' ? 'up' : 'down',
+      limitPrice: ask,
+      entryPrice: ask,
+      shares: usd / ask,
+      usd,
+      market: input.title || slug,
+      marketSlug: slug,
+      conditionId: input.conditionId || null,
+      tokenId: input.tokenId || null,
+      categoryId: 'cheap-side',
+      plan21Entry: {
+        windowMinutes: input.windowMinutes,
+        minutesLeft: input.minutesLeft,
+        low: input.low,
+        high: input.high
+      },
+      slotIso: input.startIso || null,
+      targetTimeIso: input.endDate || null,
+      strategyVersion: PLAN21_VERSION,
+      createdAtIso: new Date().toISOString(),
+      settlementStatus: 'open',
+      status: 'paper-filled',
+      mode: 'paper'
+    }, this.config);
+    if (!(Number(draft.shares) > 0)) throw new Error('Plan21 成交份数为 0。');
+    const order = {
+      id: `pm-plan21-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      ...draft
+    };
+    bucket.portfolio.cash = round2(bucket.portfolio.cash - usd);
+    bucket.paperOrders.push(order);
+    bucket.auto = {
+      ...bucket.auto,
+      lastAction: 'bought',
+      lastReason: `${input.symbol || ''} 落后方 ${order.outcome} @ ${(ask * 100).toFixed(1)}¢ · 还剩 ${Number(input.windowMinutes)} 分钟窗口`,
+      lastOrderId: order.id,
+      lastRunAtIso: order.createdAtIso
+    };
+    await this.persist(id);
+    return order;
+  }
+
+  async notePlan21Scan({ reason = '', bought = 0 } = {}) {
+    const bucket = this.getBucket(PLAN21_ID);
+    bucket.auto = {
+      ...bucket.auto,
+      lastAction: bought > 0 ? 'bought' : 'skip',
+      lastReason: reason,
+      lastRunAtIso: new Date().toISOString()
+    };
+    await this.persist(PLAN21_ID);
   }
 
   buildOrderDraft({
@@ -7000,7 +7078,7 @@ export class PolymarketTradingService {
       }
     }
 
-    const memoryIds = (scopeIds || ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20']).filter((id) => ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20'].includes(id));
+    const memoryIds = (scopeIds || ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan21']).filter((id) => ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan21'].includes(id));
     if (wantPaper && memoryIds.length) {
       const seen = new Set(orders.map((order) => String(order.id)));
       const cutoffMs = Date.now() - days * 86_400_000;
@@ -7028,7 +7106,8 @@ export class PolymarketTradingService {
       plan17: this.summarizePaperInventory('plan17'),
       plan18: this.summarizePaperInventory('plan18'),
       plan19: this.summarizePaperInventory('plan19'),
-      plan20: this.summarizePaperInventory('plan20')
+      plan20: this.summarizePaperInventory('plan20'),
+      plan21: this.summarizePaperInventory('plan21')
     };
 
     let plan3LossAnalytics = null;
@@ -7857,7 +7936,7 @@ export class PolymarketTradingService {
         order.settlementFetchFailures = (Number(order.settlementFetchFailures) || 0) + 1;
         continue;
       }
-      if (id === PLAN15_ID || id === PLAN16_ID || id === PLAN17_ID || id === PLAN18_ID || id === PLAN19_ID) {
+      if (id === PLAN15_ID || id === PLAN16_ID || id === PLAN17_ID || id === PLAN18_ID || id === PLAN19_ID || id === PLAN21_ID) {
         if (outcome?.priceSource !== 'polymarket-official') continue;
         const label = String(outcome?.officialOutcome || '').trim();
         let won;

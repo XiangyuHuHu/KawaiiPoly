@@ -119,8 +119,8 @@ function emptyMessageFor(dashboard, fallback) {
 function updateHint() {
   const sourceLabel = { paper: '模拟', live: '实盘', all: '合并' }[state.source] || state.source;
   const planLabel = state.planId === 'current'
-    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19'
-    : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19'].includes(state.planId)
+    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 + Plan21'
+    : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(state.planId)
       ? `Plan${state.planId.slice(4)}`
       : state.planId.toUpperCase();
   const symbolLabel = state.symbol === 'all' ? '全部' : state.symbol.replace('-USD', '');
@@ -372,6 +372,14 @@ function renderPlanSpecific(dashboard) {
     parts.push(renderBucketTable('梅花体用 · 方向', specific[id].byRelation));
     parts.push(renderBucketTable('小六壬 · 方向', specific[id].byLiuren));
     parts.push(renderBucketTable('两种卦法', specific[id].byAgreement));
+    parts.push('</div>');
+  }
+
+  if ((planId === 'current' || planId === 'plan21') && specific.plan21) {
+    parts.push('<div class="analytics-plan-block"><h3 class="analytics-subhead">Plan21 · 5 分钟落后方</h3>');
+    parts.push(renderOpenLine(specific.plan21.open));
+    parts.push(renderBucketTable('窗口', specific.plan21.byWindow));
+    parts.push(renderBucketTable('买入价', specific.plan21.byPrice));
     parts.push('</div>');
   }
 
