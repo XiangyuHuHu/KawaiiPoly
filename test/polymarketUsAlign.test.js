@@ -276,11 +276,11 @@ test('cold edge and BBO age are the same for scan and trade', () => {
     assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.56, bid: 0.54 })).code, 'edge');
     assert.equal(
       evaluateScan(scanInput({ ...scanEdge, modelProb: 0.64 })).signal.edge,
-      0.0425
+      0.0615
     );
     assert.equal(
       trade(tradeSignal({ ...tradeEdge, model_prob: 0.64, bid: 0.54 })).edge,
-      0.0425
+      0.0615
     );
   }
 

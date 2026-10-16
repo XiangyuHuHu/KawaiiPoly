@@ -264,8 +264,40 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
     bid: 0.54
   });
   assert.equal(blended.action, 'place');
-  assert.equal(blended.pUsed, 0.5925);
-  assert.equal(blended.edge, 0.0425);
+  assert.equal(blended.pUsed, 0.6115);
+  assert.equal(blended.edge, 0.0615);
+  const atFloor = place({
+    sector: 'btc_misprice',
+    model_prob: 0.70,
+    ask: 0.25,
+    limit_price: 0.25,
+    bid: 0.24
+  });
+  assert.equal(atFloor.action, 'place');
+  const belowFloor = place({
+    sector: 'btc_misprice',
+    model_prob: 0.80,
+    ask: 0.24,
+    limit_price: 0.24,
+    bid: 0.23
+  });
+  assert.equal(belowFloor.code, 'price_band');
+  const atCap = place({
+    sector: 'btc_misprice',
+    model_prob: 0.90,
+    ask: 0.75,
+    limit_price: 0.75,
+    bid: 0.74
+  });
+  assert.equal(atCap.action, 'place');
+  const aboveCap = place({
+    sector: 'btc_misprice',
+    model_prob: 0.90,
+    ask: 0.76,
+    limit_price: 0.76,
+    bid: 0.75
+  });
+  assert.equal(aboveCap.code, 'price_band');
   const longshot = place({
     sector: 'btc_misprice',
     model_prob: 0.8,
