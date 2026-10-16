@@ -71,13 +71,19 @@ function sideDepthUsd(bbo, book, side) {
   return book ? 0 : null;
 }
 
-function tradeObservedAt(sampledAt, fetchedAt) {
-  const fetchedMs = fetchedAt.getTime();
-  const sampledMs = parseExchangeTime(sampledAt);
-  if (sampledMs == null) return fetchedAt.toISOString();
-  const ahead = sampledMs - fetchedMs;
-  if (ahead > 0 && ahead <= 2_000) return fetchedAt.toISOString();
-  return new Date(sampledMs).toISOString();
+/**
+ * 45 秒对着决定下单这一刻。
+ * 订单簿 transactTime 是这次快照的时间。lastPriceSample 只是上一笔成交，安静的盘可以超过 45 秒，不能拿来判 BBO 过期。
+ * 没有快照时间时，用 BBO 响应返回之后的本地时钟，也就是刚刚看见这份报价的时刻。
+ * 快照比本地时钟快不超过 2 秒时，按决定时刻计，和扫描侧一样。
+ */
+export function tradeObservationTime(book, decidedAt) {
+  const decidedMs = decidedAt.getTime();
+  const snapshotMs = parseExchangeTime(book?.transactTime || book?.transact_time);
+  if (snapshotMs == null) return decidedAt.toISOString();
+  const ahead = snapshotMs - decidedMs;
+  if (ahead > 0 && ahead <= 2_000) return decidedAt.toISOString();
+  return new Date(snapshotMs).toISOString();
 }
 
 async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
@@ -85,7 +91,6 @@ async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
   if (fetchQuotes === false || !gateway || !signal?.slug) {
     return { quote: local, bboAsOf: now };
   }
-  const fetchedAt = new Date();
   let bbo = null;
   let quoteError = null;
   try {
@@ -93,29 +98,30 @@ async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
   } catch (error) {
     quoteError = error.message;
   }
-  if (!bbo) {
-    return {
-      quote: local ? { ...local, quoteError } : { quoteError },
-      bboAsOf: now
-    };
-  }
   let book = null;
-  if (typeof gateway.getBook === 'function') {
+  if (bbo && typeof gateway.getBook === 'function') {
     try {
       book = await gateway.getBook(signal.slug);
     } catch {
       book = null;
     }
   }
+  const decidedAt = new Date();
+  if (!bbo) {
+    return {
+      quote: local ? { ...local, quoteError } : { quoteError },
+      bboAsOf: decidedAt
+    };
+  }
   const depthUsd = sideDepthUsd(bbo, book, signal.side);
   return {
     quote: {
       ...bbo,
-      observedAt: tradeObservedAt(bbo.sampledAt || bbo.observedAt, fetchedAt),
+      observedAt: tradeObservationTime(book, decidedAt),
       depthUsd: depthUsd != null ? depthUsd : (local?.depthUsd ?? null),
       spread: bbo.spread ?? local?.spread ?? null
     },
-    bboAsOf: fetchedAt
+    bboAsOf: decidedAt
   };
 }
 
