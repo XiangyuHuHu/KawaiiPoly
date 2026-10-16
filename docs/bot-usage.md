@@ -88,7 +88,7 @@ bot 下单后把对应行改成 `filled` 或 `skipped`，记入 `real-orders.jso
 Edge 是模型概率减去美国站卖价。v3.2 相对旧的 0.10 放宽：
 
 - 非 BTC、非 Live（赛前、天气、宏观、加密长线、master）：≥ 3 个百分点。价格仍要在 0.15–0.85。
-- BTC 15 分钟 / 1 小时错价：模型概率先向该方向盘口中间价收缩，`p_used = 0.5 * model + 0.5 * market`，再要求 `p_used` 比卖价高至少 4 个百分点。买入价只允许 0.35–0.65。BBO 不超过 45 秒，按下单当次拉取计算。结算规则必须是 BRTI 收盘涨跌，不是 Touch。
+- BTC 15 分钟 / 1 小时错价：模型概率先向该方向盘口中间价收缩，`p_used = 0.5 * model + 0.5 * market`，再要求 `p_used` 比卖价高至少 4 个百分点。买入价只允许 0.35–0.65。BBO 不超过 45 秒，按决定下单时的订单簿快照计算，不按上一笔成交时间。结算规则必须是 BRTI 收盘涨跌，不是 Touch。
 - BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。
@@ -116,7 +116,7 @@ npm run us:settle
 POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan
 ```
 
-`polymarket:us` 在决定下单前自己重新拉 BBO 和订单簿。BTC 错价的 45 秒按这次拉取时刻计算，不用扫描时留下的报价年龄。深度读订单簿该方向的价量；订单簿没有时再用 BBO 的份额。价差、edge、现金保留、仓位和日帽不变。
+`polymarket:us` 在决定下单前自己重新拉 BBO 和订单簿。BTC 错价的 45 秒按决定下单这一刻的订单簿快照（`transactTime`）计算。上一笔成交时间 `lastPriceSample` 可以很旧，不拿来判过期；订单簿没有快照时间时，用刚收到 BBO 的时刻。深度读订单簿该方向的价量；订单簿没有时再用 BBO 的份额。价差、edge、现金保留、仓位和日帽不变。
 
 国际纸面由 `POLYMARKET_INTL_PAPER_ENABLED` 控制，默认开。关掉后 `polymarket.enabled` 为 false，纸面 Plan 不再跑。美国站用 `POLYMARKET_US_ENABLED`，默认关；扫描脚本读的是网关公开行情，不依赖这个开关去下单。
 

@@ -87,7 +87,8 @@ export function normalizeUsBook(payload) {
     bestAsk: asks[0]?.price ?? null,
     bestAskSize: asks[0]?.size ?? null,
     state: row.state || null,
-    stats: row.stats || null
+    stats: row.stats || null,
+    transactTime: row.transactTime || row.transact_time || null
   };
 }
 
