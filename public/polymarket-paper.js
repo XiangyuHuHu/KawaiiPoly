@@ -14,11 +14,13 @@ const pmPlan19Equity = document.querySelector('#pmPlan19Equity');
 const pmPlan19Return = document.querySelector('#pmPlan19Return');
 const pmPlan21Equity = document.querySelector('#pmPlan21Equity');
 const pmPlan21Return = document.querySelector('#pmPlan21Return');
+const pmPlan22Equity = document.querySelector('#pmPlan22Equity');
+const pmPlan22Return = document.querySelector('#pmPlan22Return');
 const pmRefreshAll = document.querySelector('#pmRefreshAll');
 const columns = [...document.querySelectorAll('.pm-dual-column')];
 
-const PAPER_PLAN_IDS = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'];
-const EVENT_PAPER_PLANS = new Set(['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21']);
+const PAPER_PLAN_IDS = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'];
+const EVENT_PAPER_PLANS = new Set(['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22']);
 const PLAN_IDS = [...PAPER_PLAN_IDS];
 const INDEPENDENT_PLANS = new Set();
 const PAPER_SYMBOLS = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD'];
@@ -30,12 +32,13 @@ const PLAN_SWITCH_HINTS = {
   plan17: 'Plan17 · BTC/ETH 价格档位 · Deribit 隐含波动率定价 · 扣费后高出 10¢ 才买 · 半凯利定仓 · 持有到官方结算 · 仅模拟',
   plan18: 'Plan18 · 随机对照组 · 梅花易数起卦定四币 5m/15m/1h 涨跌 · Plan17 要明显好过它才算有效 · 仅模拟',
   plan19: 'Plan19 · 随机对照组 · 小六壬起卦定四币 5m/15m/1h 涨跌 · 与 Plan18 同盘同时对比 · 仅模拟',
-  plan21: 'Plan21 · BTC/ETH 5 分钟买落后方 · 只做回测里扣费后为正的三格 · 3 分钟且 20–35¢ 不买 · 每笔 $5 · 仅模拟'
+  plan21: 'Plan21 · BTC/ETH 5 分钟买落后方 · 只做回测里扣费后为正的三格 · 3 分钟且 20–35¢ 不买 · 每笔 $5 · 仅模拟',
+  plan22: 'Plan22 · 15 分钟 K 线综合错价 · 5–12 分钟、现货锁定、扣费后正期望才买 · 持有到结算 · 默认关闭 · 仅模拟'
 };
 const state = {
   latestStatus: null,
-  plansView: { plan14: null, plan15: null, plan16: null, plan17: null, plan18: null, plan19: null, plan21: null },
-  orders: { plan14: [], plan15: [], plan16: [], plan17: [], plan18: [], plan19: [], plan21: [] },
+  plansView: { plan14: null, plan15: null, plan16: null, plan17: null, plan18: null, plan19: null, plan21: null, plan22: null },
+  orders: { plan14: [], plan15: [], plan16: [], plan17: [], plan18: [], plan19: [], plan21: [], plan22: [] },
   plan3Opportunities: [],
   plan3Analytics: null,
   plan36Analytics: null,
@@ -423,6 +426,7 @@ function renderComparison(status = {}) {
   renderPlanSummary(pmPlan18Equity, pmPlan18Return, status.plans?.plan18 || {});
   renderPlanSummary(pmPlan19Equity, pmPlan19Return, status.plans?.plan19 || {});
   renderPlanSummary(pmPlan21Equity, pmPlan21Return, status.plans?.plan21 || {});
+  renderPlanSummary(pmPlan22Equity, pmPlan22Return, status.plans?.plan22 || {});
   if (pmPlan14Auto) pmPlan14Auto.textContent = plan14.auto?.enabled ? '运行中' : '已停止';
   const versionEl = document.querySelector('#pmPlan14VersionPnl');
   if (versionEl) {
@@ -567,6 +571,7 @@ function autoCheckLabel(planId = 'plan1') {
   if (planId === 'plan17') return '约每 2 分钟对照期权波动率';
   if (planId === 'plan18' || planId === 'plan19') return '每根 5m/15m/1h K 线开盘时起卦';
   if (planId === 'plan21') return '约每 15 秒看 BTC/ETH 5 分钟落后方';
+  if (planId === 'plan22') return '约每 20 秒看 15 分钟综合错价';
   if (planId === 'plan5') {
     const ms = Number(state.latestStatus?.autoLoopIntervalMs) || 10000;
     const sec = ms >= 1000 ? ms / 1000 : ms;
@@ -601,6 +606,7 @@ function renderAutoStatus(planId, auto = {}, portfolio = {}, plansView = null) {
           : planId === 'plan18' ? 'Plan18'
           : planId === 'plan19' ? 'Plan19'
           : planId === 'plan21' ? 'Plan21'
+          : planId === 'plan22' ? 'Plan22'
           : planId === 'plan2_5' ? 'Plan2.5'
             : planId === 'plan2' ? 'Plan2'
               : 'Plan1';
@@ -638,6 +644,10 @@ function renderAutoStatus(planId, auto = {}, portfolio = {}, plansView = null) {
       detailEl.textContent = auto.lastReason
         ? `Plan21 约每 15 秒 · ${auto.lastReason}`
         : 'Plan21 约每 15 秒看 BTC/ETH 5 分钟落后方，只在三个正收益窗口按卖一买入';
+    } else if (planId === 'plan22' && running) {
+      detailEl.textContent = auto.lastReason
+        ? `Plan22 约每 20 秒 · ${auto.lastReason}`
+        : 'Plan22 约每 20 秒看 15 分钟综合错价，扣费后为正才按卖一买入，持有到结算';
     } else if (running) {
       const tfLabel = (auto.timeframes || ['5m', '15m']).join(' + ');
       const symbolLabel = MULTI_SYMBOL_PLANS.has(planId)
@@ -659,6 +669,8 @@ function renderAutoStatus(planId, auto = {}, portfolio = {}, plansView = null) {
         ? '点击启动后，每根 5m/15m/1h K 线开盘时按小六壬起卦下单'
         : planId === 'plan21'
         ? '点击启动后，约每 15 秒在三个窗口买 BTC/ETH 5 分钟落后方'
+        : planId === 'plan22'
+        ? '默认关闭。POLYMARKET_PLAN22_ENABLED=true 后，约每 20 秒在 15 分钟综合错价处下纸面单'
         : planId === 'plan14'
         ? '点击启动四币 5m 自动模拟（15m 已暂停新开仓）'
         : planId === 'plan5'
@@ -1194,7 +1206,7 @@ function formatPlan3SkipReason(reason, item = {}) {
 }
 
 function formatOrderSymbol(order) {
-  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(String(order?.planId || ''))) {
+  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(String(order?.planId || ''))) {
     const title = String(order.market || order.symbol || '—');
     return title.length > 48 ? `${title.slice(0, 46)}…` : title;
   }
@@ -1222,7 +1234,7 @@ function renderOrderRow(order, fallbackPlanId = null) {
     ? `${order.pnl >= 0 ? '+' : ''}$${formatNumber(order.pnl)}`
     : '--';
   const pid = String(order.planId || fallbackPlanId || '').toLowerCase();
-  const simpleSettlement = ['plan3', 'plan3_6', 'plan5', 'plan11', 'plan12', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(pid);
+  const simpleSettlement = ['plan3', 'plan3_6', 'plan5', 'plan11', 'plan12', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(pid);
   const modelExit = ['model-stop-loss', 'model-take-profit'].includes(order.exitStatus);
   const exitText = modelExit ? formatOrderExitLabel(order) : simpleSettlement
     ? (order.fillStatus === 'expired' || order.exitStatus === 'expired-unfilled'
@@ -1316,7 +1328,7 @@ async function startAuto(planId) {
   try {
     const payload = {
       strategy: planId,
-      timeframes: ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId) ? ['5m'] : planId === 'plan3_6' ? ['5m', '15m', '1h', '1d'] : ['5m', '15m'],
+      timeframes: planId === 'plan22' ? ['15m'] : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId) ? ['5m'] : planId === 'plan3_6' ? ['5m', '15m', '1h', '1d'] : ['5m', '15m'],
       planId
     };
     if (MULTI_SYMBOL_PLANS.has(planId)) {

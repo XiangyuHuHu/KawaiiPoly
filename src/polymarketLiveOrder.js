@@ -351,6 +351,7 @@ export async function submitPolymarketLiveOrder({
   tradingService = null
 }) {
   if (String(draft?.planId).toLowerCase() === 'plan20') throw new Error('Plan20 is paper-only.');
+  if (String(draft?.planId).toLowerCase() === 'plan22') throw new Error('Plan22 只用于模拟，禁止实盘。');
   validateLiveOrderSubmission({ config });
 
   const readiness = readinessInput || await buildPolymarketReadiness(config);
@@ -513,6 +514,7 @@ export async function submitLiveOrderFromPlan({
   readiness: readinessInput = null
 }) {
   if ([planView?.planId, planView?.plan?.planId].some(id => String(id).toLowerCase() === 'plan20')) throw new Error('Plan20 is paper-only.');
+  if ([planView?.planId, planView?.plan?.planId].some(id => String(id).toLowerCase() === 'plan22')) throw new Error('Plan22 只用于模拟，禁止实盘。');
   validateLiveOrderSubmission({ config });
 
   const readiness = readinessInput || await buildPolymarketReadiness(config);

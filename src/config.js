@@ -109,6 +109,26 @@ function divinationPlanConfig(planId, envPrefix) {
   };
 }
 
+/** 本地停掉仍在跑的纸面计划，不清订单、不改本金。 */
+export const PAPER_DISABLE_PLAN_IDS = Object.freeze(['plan17', 'plan18', 'plan19', 'plan20']);
+
+export function paperDisablePlanIdsFromEnv(env = process.env) {
+  return String(env.POLYMARKET_PAPER_DISABLED_PLANS || '')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => PAPER_DISABLE_PLAN_IDS.includes(item));
+}
+
+export function applyPaperPlanDisableList(config, disabledIds = []) {
+  const next = { ...config };
+  for (const id of disabledIds) {
+    if (!PAPER_DISABLE_PLAN_IDS.includes(id)) continue;
+    next[`${id}Enabled`] = false;
+    next[`${id}NewEntriesEnabled`] = false;
+  }
+  return next;
+}
+
 function buildPolymarketConfig() {
   return {
     line: 'intl-paper',
@@ -992,6 +1012,25 @@ function buildPolymarketConfig() {
     plan21Symbols: String(process.env.POLYMARKET_PLAN21_SYMBOLS || 'BTC,ETH')
       .split(',').map((item) => item.trim().toUpperCase()).filter((item) => ['BTC', 'ETH'].includes(item)),
     plan21LoopMs: Number(process.env.POLYMARKET_PLAN21_LOOP_MS || 15000),
+    // Plan22 — 15m K 线综合错价。默认关。打开后只开纸面自动和新仓，实盘路径不存在。
+    plan22Enabled: process.env.POLYMARKET_PLAN22_ENABLED === 'true',
+    plan22NewEntriesEnabled: process.env.POLYMARKET_PLAN22_ENABLED === 'true'
+      && process.env.POLYMARKET_PLAN22_NEW_ENTRIES_ENABLED !== 'false',
+    plan22StartingCash: Number(process.env.POLYMARKET_PLAN22_STARTING_CASH || 500),
+    plan22OrderUsd: Number(process.env.POLYMARKET_PLAN22_ORDER_USD || 5),
+    plan22MaxSpread: Number(process.env.POLYMARKET_PLAN22_MAX_SPREAD || 0.04),
+    plan22MinEdgeAfterFee: Number(process.env.POLYMARKET_PLAN22_MIN_EDGE_AFTER_FEE || 0.02),
+    plan22MinPrice: Number(process.env.POLYMARKET_PLAN22_MIN_PRICE || 0.42),
+    plan22MaxPrice: Number(process.env.POLYMARKET_PLAN22_MAX_PRICE || 0.72),
+    plan22MinElapsedPct: Number(process.env.POLYMARKET_PLAN22_MIN_ELAPSED_PCT || (5 / 15)),
+    plan22MaxElapsedPct: Number(process.env.POLYMARKET_PLAN22_MAX_ELAPSED_PCT || (12 / 15)),
+    plan22MinSpotDistanceBps: Number(process.env.POLYMARKET_PLAN22_MIN_SPOT_DISTANCE_BPS || 8),
+    plan22MaxSpotAgeMs: Number(process.env.POLYMARKET_PLAN22_MAX_SPOT_AGE_MS || 15000),
+    plan22FeeRate: Number(process.env.POLYMARKET_PLAN22_FEE_RATE || 0.07),
+    plan22RandomControl: process.env.POLYMARKET_PLAN22_RANDOM_CONTROL === 'true',
+    plan22Symbols: String(process.env.POLYMARKET_PLAN22_SYMBOLS || 'BTC,ETH')
+      .split(',').map((item) => item.trim().toUpperCase()).filter((item) => ['BTC', 'ETH', 'SOL', 'XRP'].includes(item)),
+    plan22LoopMs: Number(process.env.POLYMARKET_PLAN22_LOOP_MS || 20000),
     // Plan13 v2 — 仅 15m standard；65–88¢；费后正期望单机会；确认止损且不反手。
     plan13Enabled: process.env.POLYMARKET_PLAN13_ENABLED !== 'false',
     plan13LiveEnabled: process.env.POLYMARKET_PLAN13_LIVE_ENABLED === 'true',
@@ -1548,7 +1587,7 @@ export function getConfig() {
       enabled: process.env.STATS_DB_ENABLED !== 'false',
       path: process.env.STATS_DB_PATH || 'data/polymarket-stats.db'
     },
-    polymarket: buildPolymarketConfig(),
+    polymarket: applyPaperPlanDisableList(buildPolymarketConfig(), paperDisablePlanIdsFromEnv()),
     polymarketUs: buildAppPolymarketUsConfig(),
     market: {
       source: (process.env.MARKET_DATA_SOURCE || 'binance').toLowerCase(),

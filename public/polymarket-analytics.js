@@ -119,8 +119,8 @@ function emptyMessageFor(dashboard, fallback) {
 function updateHint() {
   const sourceLabel = { paper: '模拟', live: '实盘', all: '合并' }[state.source] || state.source;
   const planLabel = state.planId === 'current'
-    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 + Plan21'
-    : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(state.planId)
+    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 + Plan21 + Plan22'
+    : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(state.planId)
       ? `Plan${state.planId.slice(4)}`
       : state.planId.toUpperCase();
   const symbolLabel = state.symbol === 'all' ? '全部' : state.symbol.replace('-USD', '');
@@ -380,6 +380,18 @@ function renderPlanSpecific(dashboard) {
     parts.push(renderOpenLine(specific.plan21.open));
     parts.push(renderBucketTable('窗口', specific.plan21.byWindow));
     parts.push(renderBucketTable('买入价', specific.plan21.byPrice));
+    parts.push('</div>');
+  }
+
+  if ((planId === 'current' || planId === 'plan22') && specific.plan22) {
+    const control = specific.plan22.randomControl;
+    parts.push('<div class="analytics-plan-block"><h3 class="analytics-subhead">Plan22 · 15 分钟 K 线综合</h3>');
+    parts.push(renderOpenLine(specific.plan22.open));
+    parts.push(renderBucketTable('阶段', specific.plan22.byPhase));
+    parts.push(renderBucketTable('买入价', specific.plan22.byPrice));
+    if (control?.total) {
+      parts.push(`<p class="muted">随机对照（不占现金）${control.total} 笔 · 胜 ${control.wins} · 假设盈亏 $${control.totalPnl}</p>`);
+    }
     parts.push('</div>');
   }
 

@@ -68,6 +68,8 @@
           <div><span>Plan19 收益</span><strong id="pmPlan19Return">--</strong></div>
           <div><span>Plan21 净值</span><strong id="pmPlan21Equity">--</strong></div>
           <div><span>Plan21 收益</span><strong id="pmPlan21Return">--</strong></div>
+          <div><span>Plan22 净值</span><strong id="pmPlan22Equity">--</strong></div>
+          <div><span>Plan22 收益</span><strong id="pmPlan22Return">--</strong></div>
         </section>
       </section>
 
@@ -80,6 +82,7 @@
           <button type="button" class="pm-tab" data-plan-tab="plan18" role="tab" aria-selected="false">Plan18 梅花易数</button>
           <button type="button" class="pm-tab" data-plan-tab="plan19" role="tab" aria-selected="false">Plan19 小六壬</button>
           <button type="button" class="pm-tab" data-plan-tab="plan21" role="tab" aria-selected="false">Plan21 落后方</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan22" role="tab" aria-selected="false">Plan22 15m 综合</button>
         </div>
         <p class="pm-plan-switcher-hint" data-role="plan-switcher-hint"></p>
       <section class="pm-dual-grid pm-dual-grid-tabs">
@@ -331,6 +334,39 @@
               <div class="pm-auto-status-copy">
                 <strong data-role="auto-text">未启动</strong>
                 <small data-role="auto-detail">约每 15 秒看 BTC/ETH 5 分钟落后方</small>
+              </div>
+            </div>
+            <div class="paper-controls">
+              <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
+              <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan22">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan22</span>
+                <h2>15 分钟盘 · K 线综合错价</h2>
+                <p class="pm-plan-scope-note">只做 15 分钟涨跌。用和监控「15m 综合」相同的阶段权重，在 5–12 分钟、现货锁方向且报价新、卖一相对综合概率扣费后仍便宜时，按固定金额买一次，持有到官方结算。0–5 分钟技术面权重太低，最后 3 分钟盘口通常已经跟上，都不买。随机对照只写在报表里，不另占现金。默认关闭。仅模拟，不能开实盘。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">约每 20 秒看 15 分钟综合错价</small>
               </div>
             </div>
             <div class="paper-controls">

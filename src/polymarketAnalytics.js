@@ -86,6 +86,26 @@ function plan21WindowLabel(order) {
   return '未知窗口';
 }
 
+function plan22PhaseLabel(order) {
+  const phase = order.plan22Entry?.phase;
+  if (phase === 'phase2') return '5–10 分钟';
+  if (phase === 'phase3') return '10–12 分钟';
+  return phase || '未知阶段';
+}
+
+function plan22ControlBucket(orders) {
+  const rows = orders.filter((order) => order.plan22Control && Number.isFinite(Number(order.plan22Control.pnl)));
+  const wins = rows.filter((order) => order.plan22Control.won === true).length;
+  const pnl = rows.reduce((sum, order) => sum + (Number(order.plan22Control.pnl) || 0), 0);
+  return {
+    total: rows.length,
+    wins,
+    losses: rows.length - wins,
+    winRate: rows.length ? Math.round((wins / rows.length) * 1e4) / 1e4 : 0,
+    totalPnl: Math.round(pnl * 100) / 100
+  };
+}
+
 function plan21PriceBand(price) {
   const p = Number(price);
   if (!Number.isFinite(p)) return '未知';
@@ -880,7 +900,7 @@ export function buildPolymarketAnalyticsDashboard({
         : null
     };
   }
-  const showCurrent = !planId || ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId);
+  const showCurrent = !planId || ['current', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(planId);
   if (showCurrent && (!planId || planId === 'current' || planId === 'plan14')) {
     const plan14Orders = filtered.filter((order) => order.planId === 'plan14');
     planSpecific.plan14 = {
@@ -932,6 +952,16 @@ export function buildPolymarketAnalyticsDashboard({
       byWindow: bucketSettledOrders(plan21Orders, plan21WindowLabel),
       byPrice: bucketSettledOrders(plan21Orders, (order) => plan21PriceBand(order.limitPrice ?? order.entryPrice)),
       open: positionInventory?.plan21 || null
+    };
+  }
+  if (showCurrent && (!planId || planId === 'current' || planId === 'plan22')) {
+    const plan22Orders = filtered.filter((order) => order.planId === 'plan22');
+    planSpecific.plan22 = {
+      byPhase: bucketSettledOrders(plan22Orders, plan22PhaseLabel),
+      byPrice: bucketSettledOrders(plan22Orders, (order) => plan21PriceBand(order.limitPrice ?? order.entryPrice)),
+      signal: bucketSettledOrders(plan22Orders, () => '综合方向'),
+      randomControl: plan22ControlBucket(plan22Orders),
+      open: positionInventory?.plan22 || null
     };
   }
 

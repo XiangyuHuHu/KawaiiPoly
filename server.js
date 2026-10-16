@@ -29,6 +29,8 @@ import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
 import { PLAN20_BOOK_PRESCREEN, plan20ExecutableQuotes, plan20QuotesFromGamma } from './src/polymarketPlan20.js';
 import { evaluatePlan21 } from './src/polymarketPlan21.js';
+import { evaluatePlan22, plan22InputsFromSignal } from './src/polymarketPlan22.js';
+import { PAPER_DISABLE_PLAN_IDS } from './src/config.js';
 import {
   blendPlan5LockStrengthStats,
   buildPolymarketPaperPlan5
@@ -267,6 +269,18 @@ if (config.polymarket.enabled) {
         console.error(`Plan21 paper scan failed: ${error.message}`);
       });
     }, Math.max(10_000, Number(config.polymarket.plan21LoopMs) || 15_000));
+  }
+  if (config.polymarket.plan22Enabled === true) {
+    setTimeout(() => ensurePlan22PaperRunning()
+      .then(() => runPlan22PaperScan())
+      .catch((error) => {
+        console.error(`Plan22 paper ensure failed: ${error.message}`);
+      }), 9000);
+    setInterval(() => {
+      runPlan22PaperScan().catch((error) => {
+        console.error(`Plan22 paper scan failed: ${error.message}`);
+      });
+    }, Math.max(10_000, Number(config.polymarket.plan22LoopMs) || 20_000));
   }
 }
 
@@ -633,7 +647,7 @@ async function handleApi(request, response, url) {
     );
     const normalizedSource = ['live', 'paper', 'all'].includes(source) ? source : 'paper';
     const categorySymbols = ['体育', '电竞', '天气', '政治选举', '宏观金融', '加密事件'];
-    const currentPlanIds = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'];
+    const currentPlanIds = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'];
     const normalizedPlan = PLAN_IDS.includes(planParam) ? planParam : null;
     const planIds = planParam === 'current'
       ? currentPlanIds
@@ -3826,7 +3840,7 @@ async function runPolymarketAutoTickForPlans(planIds = [], { tickContext = null 
 
 async function runPolymarketAutoTickForSinglePlan(rawId, { tickContext = null } = {}) {
   const id = normalizePaperPlanId(rawId);
-  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(id)) return [];
+  if (['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(id)) return [];
   const bucket = polymarketTrading.status(id);
   const mainEnabled = bucket.auto.enabled && (id !== 'plan14' || config.polymarket.plan14NewEntriesEnabled === true);
   if (!mainEnabled && !(id === 'plan14' && polymarketTrading.plan14ProfitExperimentEnabled())) return [];
@@ -4212,7 +4226,7 @@ async function runPolymarketSettlementLoop() {
     }
     const settledAll = [];
     for (const planId of PLAN_IDS) {
-      const resolver = ['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21'].includes(planId)
+      const resolver = ['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(planId)
         ? resolvePlan15SettlementOutcome
         : resolvePolymarketSettlementOutcome;
       const settled = await polymarketTrading.settleOpenOrders(planId, resolver);
@@ -4477,6 +4491,17 @@ function anyPolymarketCoreAutoEnabled() {
 }
 
 async function stopRetiredPaperAndLivePlans() {
+  for (const planId of PAPER_DISABLE_PLAN_IDS) {
+    if (config.polymarket[`${planId}Enabled`] !== false) continue;
+    try {
+      if (polymarketTrading.statusForPlan(planId)?.auto?.enabled) {
+        await polymarketTrading.setAuto(false, { planId });
+        console.log(`${planId} disabled; paper auto stopped. Orders and cash history kept.`);
+      }
+    } catch (error) {
+      console.error(`Stop disabled paper ${planId} failed: ${error.message}`);
+    }
+  }
   for (const planId of RETIRED_PAPER_PLAN_IDS) {
     try {
       if (polymarketTrading.statusForPlan(planId)?.auto?.enabled) {
@@ -5340,6 +5365,168 @@ async function runPlan21PaperScan() {
   }
 }
 
+async function ensurePlan22PaperRunning() {
+  if (config.polymarket.plan22Enabled !== true) return;
+  if (config.polymarket.plan22NewEntriesEnabled !== true) {
+    if (polymarketTrading.statusForPlan('plan22')?.auto?.enabled) {
+      await polymarketTrading.setAuto(false, { planId: 'plan22' });
+      console.log('Plan22 new entries disabled; paper auto stopped. Open orders still settle.');
+    }
+    return;
+  }
+  if (!polymarketTrading.statusForPlan('plan22')?.portfolio?.portfolioInitialized) {
+    await polymarketTrading.configurePortfolio({
+      planId: 'plan22',
+      cash: Number(config.polymarket.plan22StartingCash) || 500
+    });
+  }
+  if (polymarketTrading.statusForPlan('plan22')?.auto?.enabled !== true) {
+    await polymarketTrading.setAuto(true, { planId: 'plan22', timeframes: ['15m'] });
+  }
+}
+
+let plan22ScanRunning = false;
+
+async function runPlan22PaperScan() {
+  if (plan22ScanRunning || config.polymarket.plan22Enabled !== true) return { bought: 0 };
+  if (config.polymarket.plan22NewEntriesEnabled !== true) return { bought: 0 };
+  const status = polymarketTrading.statusForPlan('plan22');
+  if (status?.auto?.enabled !== true || status?.portfolio?.portfolioInitialized !== true) return { bought: 0 };
+  plan22ScanRunning = true;
+  const bought = [];
+  try {
+    const pm = config.polymarket;
+    const usd = Math.max(1, Number(pm.plan22OrderUsd) || 5);
+    const bucket = polymarketTrading.getBucket('plan22');
+    if ((Number(bucket.portfolio?.cash) || 0) + 0.005 < usd) {
+      if (bucket.auto?.lastReason !== '现金不足') await polymarketTrading.notePlan22Scan({ reason: '现金不足', bought: 0 });
+      return { bought: 0 };
+    }
+    const held = new Set((bucket.paperOrders || []).map((order) => order.marketSlug).filter(Boolean));
+    const symbols = pm.plan22Symbols?.length ? pm.plan22Symbols : ['BTC', 'ETH'];
+    const slugs = symbols.map((symbol) => plan18ShortSlug(symbol, '15m')).filter((slug) => slug && !held.has(slug));
+    if (!slugs.length) return { bought: 0 };
+    const nowMs = Date.now();
+    const snapshots = new Map();
+    await Promise.all(symbols.map(async (symbol) => {
+      const pair = `${symbol}-USD`;
+      try {
+        const [candles, quotes] = await Promise.all([
+          publicMarket.getCandles(pair, '15m', 80),
+          publicMarket.getQuotes([pair])
+        ]);
+        const quote = quotes?.results?.[0];
+        const spot = Number(quote?.price);
+        const spotQuoteMs = Date.parse(quote?.timestamp || '');
+        const signal = buildIntervalSignal({
+          symbol: pair,
+          candles,
+          currentPrice: spot,
+          currentQuoteTime: quote?.timestamp || null,
+          now: new Date(nowMs)
+        });
+        const inputs = plan22InputsFromSignal(signal, spotQuoteMs);
+        if (inputs) snapshots.set(symbol, inputs);
+      } catch (error) {
+        snapshots.set(symbol, { error: error.message });
+      }
+    }));
+    const events = (await Promise.all(slugs.map((slug) => polymarketClient
+      .gammaRequest('/events', { slug })
+      .then((rows) => (Array.isArray(rows) ? rows[0] : null))
+      .catch(() => null)))).filter(Boolean);
+    const tokenIds = events.flatMap((event) => asJsonList(event.markets?.[0]?.clobTokenIds).map(String));
+    const books = tokenIds.length ? await polymarketClient.getOrderBooks(tokenIds).catch(() => []) : [];
+    const bookByToken = new Map();
+    for (const raw of books) {
+      const tokenId = String(raw?.asset_id || raw?.assetId || raw?.token_id || raw?.tokenId || '');
+      if (tokenId) bookByToken.set(tokenId, normalizeOrderBook(raw));
+    }
+    const skips = [];
+    for (const event of events) {
+      const market = event.markets?.[0];
+      const outcomes = asJsonList(market?.outcomes).map((name) => String(name));
+      const tokens = asJsonList(market?.clobTokenIds).map(String);
+      const upIndex = outcomes.findIndex((name) => name.toLowerCase() === 'up');
+      const downIndex = outcomes.findIndex((name) => name.toLowerCase() === 'down');
+      const startMs = Date.parse(market?.eventStartTime || event?.startTime || '');
+      const endMs = Date.parse(market?.endDate || event?.endDate || '');
+      const symbol = String(event.slug || market?.slug || '').split('-')[0].toUpperCase();
+      const snap = snapshots.get(symbol);
+      if (!snap || snap.error) {
+        skips.push(`${event.slug} ${snap?.error || 'no_kline'}`);
+        continue;
+      }
+      const decision = evaluatePlan22({
+        ...snap,
+        startMs,
+        endMs,
+        nowMs,
+        upBook: bookByToken.get(tokens[upIndex]),
+        downBook: bookByToken.get(tokens[downIndex]),
+        marketSlug: String(market?.slug || event.slug),
+        randomControl: pm.plan22RandomControl === true,
+        minElapsedPct: Number(pm.plan22MinElapsedPct),
+        maxElapsedPct: Number(pm.plan22MaxElapsedPct),
+        minPrice: Number(pm.plan22MinPrice),
+        maxPrice: Number(pm.plan22MaxPrice),
+        maxSpread: Number(pm.plan22MaxSpread),
+        minSpotDistanceBps: Number(pm.plan22MinSpotDistanceBps),
+        maxSpotAgeMs: Number(pm.plan22MaxSpotAgeMs),
+        minEdgeAfterFee: Number(pm.plan22MinEdgeAfterFee),
+        feeRate: Number(pm.plan22FeeRate) || 0.07
+      });
+      if (!decision.ok) {
+        if (decision.reason !== 'outside_phase') skips.push(`${event.slug} ${decision.reason}`);
+        continue;
+      }
+      const index = decision.outcome === 'Up' ? upIndex : downIndex;
+      let order;
+      try {
+        order = await polymarketTrading.createPlan22PaperOrder({
+          symbol,
+          outcome: outcomes[index] || decision.outcome,
+          tokenId: tokens[index],
+          ask: decision.ask,
+          marketSlug: String(market?.slug || event.slug),
+          conditionId: market?.conditionId || null,
+          title: market?.question || event.title || event.slug,
+          startIso: market?.eventStartTime || null,
+          endDate: new Date(endMs).toISOString(),
+          phase: decision.phase,
+          elapsedPct: decision.elapsedPct,
+          pHat: decision.pHat,
+          edgeAfterFee: decision.edgeAfterFee,
+          feePerShare: decision.feePerShare,
+          distanceBps: decision.distanceBps,
+          spotAgeMs: decision.spotAgeMs,
+          spread: decision.spread,
+          techWeight: decision.techWeight,
+          mid: decision.mid,
+          control: decision.control,
+          usd
+        });
+      } catch (error) {
+        if (/现金不足/.test(error.message || '')) break;
+        skips.push(error.message);
+        continue;
+      }
+      if (!order) continue;
+      bought.push(order);
+      console.log(`Polymarket plan22 paper order: ${order.symbol} 15m ${order.outcome} $${order.usd} at ${order.limitPrice} · ${decision.phase} edge ${decision.edgeAfterFee}`);
+    }
+    if (bought.length || skips.length) {
+      const reason = bought.length
+        ? `本轮买入 15m 综合 ${bought.length} 笔 · ${bought.map((order) => `${order.symbol} ${order.outcome} $${order.usd}`).join(' · ')}`
+        : `本轮未下单（${skips.join('，')}）`;
+      await polymarketTrading.notePlan22Scan({ reason, bought: bought.length });
+    }
+    return { bought: bought.length };
+  } finally {
+    plan22ScanRunning = false;
+  }
+}
+
 function anyPolymarketLiveCoreAutoEnabled() {
   const auto = polymarketTrading.liveAutoStatus();
   if (!auto?.enabled) return false;
@@ -5600,6 +5787,12 @@ function scheduleIsolatedPaperPlanTick(planId) {
   if (id === 'plan21') {
     runPlan21PaperScan().catch((error) => {
       console.error(`Plan21 paper scan failed: ${error.message}`);
+    });
+    return;
+  }
+  if (id === 'plan22') {
+    runPlan22PaperScan().catch((error) => {
+      console.error(`Plan22 paper scan failed: ${error.message}`);
     });
     return;
   }
