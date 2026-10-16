@@ -30,7 +30,7 @@
         <div class="hero-copy">
           <p class="eyebrow">Polymarket CLOB</p>
           <h1>模拟盘</h1>
-          <p class="subhead">Plan17 用期权隐含波动率给 BTC/ETH 价格档位定价。Plan18、Plan19 是算卦对照。Plan21 在 5 分钟盘买落后方，只做回测里扣费后为正的三格。Plan14 和 Plan16 已停新仓，旧单照常结算。Plan15 买事件盘领先结果。全部只做模拟，实盘不开放。</p>
+          <p class="subhead">Plan17 用期权隐含波动率给 BTC/ETH 价格档位定价。Plan18、Plan19 是算卦对照。Plan21 在 5 分钟盘买落后方，只做回测里扣费后为正的三格。Plan14 和 Plan16 已停新仓，旧单照常结算。Plan15 买事件盘领先结果。Plan14b / 16b / 2.6b / 3.6b 是纸面 A/B，对照账本分开，实盘不开放。</p>
           <div class="mode-actions">
             <a class="primary-button" href="/polymarket.html">进入实盘页</a>
           </div>
@@ -70,7 +70,16 @@
           <div><span>Plan21 收益</span><strong id="pmPlan21Return">--</strong></div>
           <div><span>Plan22 净值</span><strong id="pmPlan22Equity">--</strong></div>
           <div><span>Plan22 收益</span><strong id="pmPlan22Return">--</strong></div>
+          <div><span>Plan14b 净值</span><strong id="pmPlan14bEquity">--</strong></div>
+          <div><span>Plan14b 收益</span><strong id="pmPlan14bReturn">--</strong></div>
+          <div><span>Plan16b 净值</span><strong id="pmPlan16bEquity">--</strong></div>
+          <div><span>Plan16b 收益</span><strong id="pmPlan16bReturn">--</strong></div>
+          <div><span>Plan2.6b 净值</span><strong id="pmPlan26bEquity">--</strong></div>
+          <div><span>Plan2.6b 收益</span><strong id="pmPlan26bReturn">--</strong></div>
+          <div><span>Plan3.6b 净值</span><strong id="pmPlan36bEquity">--</strong></div>
+          <div><span>Plan3.6b 收益</span><strong id="pmPlan36bReturn">--</strong></div>
         </section>
+        <p class="pm-plan-scope-note">A/B 只比未来纸面成交：扣费、滑点后的净 ROI（已结算盈亏 / 成本）、最大回撤，并按同一卖一档对照。不要用几笔成交宣布胜负。实盘保持关闭。</p>
       </section>
 
       <section class="pm-plan-detail-section">
@@ -83,6 +92,10 @@
           <button type="button" class="pm-tab" data-plan-tab="plan19" role="tab" aria-selected="false">Plan19 小六壬</button>
           <button type="button" class="pm-tab" data-plan-tab="plan21" role="tab" aria-selected="false">Plan21 落后方</button>
           <button type="button" class="pm-tab" data-plan-tab="plan22" role="tab" aria-selected="false">Plan22 15m 综合</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan14b" role="tab" aria-selected="false">Plan14b 半权重</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan16b" role="tab" aria-selected="false">Plan16b 卖一≥20¢</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan2_6b" role="tab" aria-selected="false">Plan2.6b 入场≤80¢</button>
+          <button type="button" class="pm-tab" data-plan-tab="plan3_6b" role="tab" aria-selected="false">Plan3.6b 校准 edge</button>
         </div>
         <p class="pm-plan-switcher-hint" data-role="plan-switcher-hint"></p>
       <section class="pm-dual-grid pm-dual-grid-tabs">
@@ -373,6 +386,122 @@
             <div class="paper-controls">
               <button class="primary-button" type="button" data-action="auto-start">启动自动模拟</button>
               <button type="button" data-action="auto-stop">停止</button>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan14b">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan14b</span>
+                <h2>对照 · 5 分钟现货权重减半</h2>
+                <p class="pm-plan-scope-note">治疗臂把当前 modelWeight5m 减半，其余规则与 Plan14 相同。账本分开。比较时用扣费后净 ROI、最大回撤，以及同一卖一档，不要和对照臂的价格结构混在一起。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">纸面 A/B 循环，约每 20 秒</small>
+              </div>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan16b">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan16b</span>
+                <h2>对照 · 卖一下限 20¢</h2>
+                <p class="pm-plan-scope-note">治疗臂拒绝 20¢ 以下的尾部成交。对照臂仍是 8¢。两边看同一本预报。比较时按同一卖一档看扣费后净 ROI 和回撤。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">与 Plan16 同一次扫描</small>
+              </div>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan2_6b">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan2.6b</span>
+                <h2>对照 · 入场上限 80¢</h2>
+                <p class="pm-plan-scope-note">治疗臂把追价上限和硬顶都收到 0.80。对照臂仍是 0.90 / 硬顶 0.92，只在纸面 A/B 循环里跑，不进实盘。比较扣费后净 ROI 和回撤。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">纸面 A/B，paperOnly</small>
+              </div>
+            </div>
+            <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
+            <div class="panel-head compact pm-orders-head">
+              <h3>最近订单</h3>
+            </div>
+            <div class="paper-trades pm-orders" data-role="orders">暂无记录。</div>
+          </article>
+        </div>
+        <div class="pm-dual-column" data-plan="plan3_6b">
+          <article class="panel market-panel pm-plan-column">
+            <div class="panel-head compact">
+              <div>
+                <span class="section-kicker">Plan3.6b</span>
+                <h2>对照 · 先把置信度校准成概率</h2>
+                <p class="pm-plan-scope-note">治疗臂先用经验胜率，样本不够时向 1/2 收缩，再用概率减可执行价做 edge。对照臂仍把置信度直接当概率。原始置信度门槛不变。比较扣费、滑点后的净 ROI 和回撤。仅模拟。</p>
+              </div>
+            </div>
+            <section class="summary-strip embedded-summary pm-column-summary">
+              <div><span>初始本金</span><strong data-field="starting">--</strong></div>
+              <div><span>当前净值</span><strong data-field="equity">--</strong></div>
+              <div><span>累计收益</span><strong data-field="return">--</strong></div>
+              <div><span>胜率</span><strong data-field="winRate">--</strong></div>
+            </section>
+            <div class="pm-auto-status stopped" data-role="auto-status" aria-live="polite">
+              <span class="pm-auto-dot" aria-hidden="true"></span>
+              <div class="pm-auto-status-copy">
+                <strong data-role="auto-text">未启动</strong>
+                <small data-role="auto-detail">纸面 A/B，paperOnly</small>
+              </div>
             </div>
             <div class="options-result polymarket-order-result" data-role="order-result">暂无操作记录。</div>
             <div class="panel-head compact pm-orders-head">

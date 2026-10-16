@@ -118,9 +118,10 @@ function emptyMessageFor(dashboard, fallback) {
 
 function updateHint() {
   const sourceLabel = { paper: '模拟', live: '实盘', all: '合并' }[state.source] || state.source;
+  const namedPlans = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22', 'plan14b', 'plan16b', 'plan2_6b', 'plan3_6b'];
   const planLabel = state.planId === 'current'
-    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 + Plan21 + Plan22'
-    : ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(state.planId)
+    ? 'Plan14 + Plan15 + Plan16 + Plan17 + Plan18 + Plan19 + Plan21 + Plan22 + 纸面 A/B'
+    : namedPlans.includes(state.planId)
       ? `Plan${state.planId.slice(4)}`
       : state.planId.toUpperCase();
   const symbolLabel = state.symbol === 'all' ? '全部' : state.symbol.replace('-USD', '');
