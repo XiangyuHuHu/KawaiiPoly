@@ -49,13 +49,14 @@ export const US_EDGE_STANDARD = 0.03;
 export const US_EDGE_BTC_MISPRICE = 0.04;
 /**
  * BTC 错价把模型概率向该方向的盘口中间价收缩后再要求 4pp。
- * 实盘 7 笔都是窗口初的便宜一侧（0.21–0.43），模型停在约 52%，2 胜 5 负。
- * 样本太少，不能另拟合一条曲线；一半权重给市场，是事先定的收缩，不是用这 7 笔回出来的系数。
+ * p_used = 0.7 * model + 0.3 * market_mid。
+ * 0.5/0.5 配合 0.35–0.65 之后，扫描几乎都停在 price-band，没有新成交。
+ * 0.7 是事先放宽的权重，不是用已结算的几笔拟合出来的。
  */
-export const US_BTC_MISPRICE_MODEL_WEIGHT = 0.5;
-/** BTC 错价只买 0.35–0.65，不接便宜的冷门一侧。 */
-export const US_BTC_MISPRICE_MIN_PRICE = 0.35;
-export const US_BTC_MISPRICE_MAX_PRICE = 0.65;
+export const US_BTC_MISPRICE_MODEL_WEIGHT = 0.7;
+/** BTC 错价买入价 0.25–0.75。 */
+export const US_BTC_MISPRICE_MIN_PRICE = 0.25;
+export const US_BTC_MISPRICE_MAX_PRICE = 0.75;
 /** 某板块最近 10 笔已结算胜率低于 35% 且已实现盈亏为负时，停开新单 24 小时。 */
 export const US_SECTOR_BRAKE_TRADES = 10;
 export const US_SECTOR_BRAKE_WIN_RATE = 0.35;

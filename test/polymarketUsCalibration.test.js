@@ -37,11 +37,11 @@ function loss(index, sector = 'weather', pnl = -2) {
   };
 }
 
-test('BTC misprice shrinks halfway to the market mid', () => {
+test('BTC misprice keeps 70% of the model and 30% of the market mid', () => {
   const market = marketProbability({ side: 'Up', ask: 0.4, bid: 0.39 });
   const blend = blendModelToMarket(0.52, market);
   assert.equal(market, 0.395);
-  assert.equal(blend.pUsed, 0.4575);
+  assert.ok(Math.abs(blend.pUsed - 0.4825) < 1e-12);
   const down = marketProbability({
     side: 'Down',
     quote: { bestBid: 0.68, bestAsk: 0.69 }

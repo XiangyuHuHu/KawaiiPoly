@@ -8,7 +8,15 @@ import { brtiOfficialPrice, brtiSettlesUp, settlementFromUsMarket } from '../src
 import { summarizeUsSettlements, runUsDigest } from '../src/polymarketUs/digest.js';
 import { evaluateUsSignal, sizeForRecord } from '../src/polymarketUs/evaluate.js';
 import { PolymarketUsGateway, eventUrl } from '../src/polymarketUs/gateway.js';
-import { US_BBO_MAX_AGE_MS, US_EDGE_BTC_MISPRICE } from '../src/polymarketUs/constants.js';
+import {
+  US_BBO_MAX_AGE_MS,
+  US_BTC_MISPRICE_MAX_PRICE,
+  US_BTC_MISPRICE_MIN_PRICE,
+  US_BTC_MISPRICE_MODEL_WEIGHT,
+  US_EDGE_BTC_MISPRICE,
+  US_PRICE_MAX,
+  US_PRICE_MIN
+} from '../src/polymarketUs/constants.js';
 import { US_RULES } from '../src/polymarketUs/rules.js';
 import { btcCandidatesFromContext, runUsScan } from '../src/polymarketUs/scan.js';
 import { publishUsSignal, readJsonl } from '../src/polymarketUs/signals.js';
@@ -133,10 +141,10 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
   assert.equal(signal.signal.size_usd, 2);
-  assert.equal(signal.signal.edge, 0.0725);
+  assert.equal(signal.signal.edge, 0.1035);
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
-  assert.equal(signal.signal.p_used, 0.6225);
+  assert.equal(signal.signal.p_used, 0.6535);
   assert.equal(signal.signal.spec_version, '3.2');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
@@ -159,6 +167,26 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
     modelProb: 0.52,
     ask: 0.21,
     bid: 0.20
+  })).reason, 'price-band');
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.70,
+    ask: 0.24,
+    bid: 0.23
+  })).reason, 'price-band');
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.70,
+    ask: 0.25,
+    bid: 0.24
+  })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.90,
+    ask: 0.75,
+    bid: 0.74
+  })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.90,
+    ask: 0.76,
+    bid: 0.75
   })).reason, 'price-band');
   assert.equal(evaluateUsSignal(passing({
     modelProb: 0.56,
@@ -258,6 +286,16 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);
+  assert.equal(US_BTC_MISPRICE_MODEL_WEIGHT, 0.7);
+  assert.equal(US_RULES.edge.btcMispriceModelWeight, US_BTC_MISPRICE_MODEL_WEIGHT);
+  assert.equal(US_BTC_MISPRICE_MIN_PRICE, 0.25);
+  assert.equal(US_BTC_MISPRICE_MAX_PRICE, 0.75);
+  assert.equal(US_RULES.edge.btcMispriceMinPrice, US_BTC_MISPRICE_MIN_PRICE);
+  assert.equal(US_RULES.edge.btcMispriceMaxPrice, US_BTC_MISPRICE_MAX_PRICE);
+  assert.equal(US_PRICE_MIN, 0.15);
+  assert.equal(US_PRICE_MAX, 0.85);
+  assert.equal(US_RULES.edge.standardMinPrice, US_PRICE_MIN);
+  assert.equal(US_RULES.edge.standardMaxPrice, US_PRICE_MAX);
   assert.equal(US_RULES.edge.bboMaxAgeMs, US_BBO_MAX_AGE_MS);
   assert.equal(US_BBO_MAX_AGE_MS, 45_000);
   assert.equal(US_RULES.edge.liveInGame, 0.04);
@@ -486,7 +524,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
     assert.equal(modest.signals.length, 1);
     assert.equal(modest.signals[0].sector, 'btc_misprice');
     assert.equal(modest.signals[0].confidence, 'Med');
-    assert.equal(modest.signals[0].edge, 0.0475);
+    assert.equal(modest.signals[0].edge, 0.0685);
     const coinFlip = btcCandidatesFromContext({
       ...context,
       signal: {

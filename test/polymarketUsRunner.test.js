@@ -256,7 +256,7 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
   const row = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
   assert.equal(row.model_p, 0.7);
   assert.equal(row.market_p, 0.495);
-  assert.equal(row.p_used, 0.5975);
+  assert.equal(row.p_used, 0.6385);
   assert.equal(row.entry, 0.5);
 });
 
