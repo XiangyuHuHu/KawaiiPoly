@@ -5325,6 +5325,8 @@ async function runPlan21PaperScan() {
         continue;
       }
       const index = decision.outcome === 'Up' ? upIndex : downIndex;
+      const oppositeIndex = decision.outcome === 'Up' ? downIndex : upIndex;
+      const oppositeBook = bookByToken.get(tokens[oppositeIndex]);
       const symbol = /eth/i.test(String(event.slug || market?.slug || '')) ? 'ETH' : 'BTC';
       let order;
       try {
@@ -5342,7 +5344,11 @@ async function runPlan21PaperScan() {
           minutesLeft: decision.minutesLeft,
           low: decision.low,
           high: decision.high,
-          usd
+          usd,
+          recordInverse: pm.plan21InverseEnabled !== false,
+          oppositeAsk: oppositeBook?.bestAsk ?? null,
+          oppositeBid: oppositeBook?.bestBid ?? null,
+          oppositeTokenId: tokens[oppositeIndex] || null
         });
       } catch (error) {
         if (/现金不足/.test(error.message || '')) break;

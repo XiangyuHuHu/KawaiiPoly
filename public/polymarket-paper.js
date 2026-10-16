@@ -427,6 +427,13 @@ function renderComparison(status = {}) {
   renderPlanSummary(pmPlan19Equity, pmPlan19Return, status.plans?.plan19 || {});
   renderPlanSummary(pmPlan21Equity, pmPlan21Return, status.plans?.plan21 || {});
   renderPlanSummary(pmPlan22Equity, pmPlan22Return, status.plans?.plan22 || {});
+  const inverseEl = document.querySelector('#pmPlan21Inverse');
+  if (inverseEl) {
+    const inverse = status.plans?.plan21?.inverseResearch;
+    inverseEl.textContent = inverse?.started
+      ? `对侧研究账本：已结算 ${inverse.trades} 笔，${inverse.wins} 胜 ${inverse.losses} 负，胜率 ${Number(inverse.winRate).toFixed(1)}%，实现盈亏 $${formatNumber(inverse.realizedPnl)}（本金 $${formatNumber(inverse.startingCash)}，现金 $${formatNumber(inverse.cash)}）。未成交 ${inverse.invalid} 笔。与 Plan21 主仓分开，不能下实盘。`
+      : '对侧研究账本：Plan21 买入时，用另一边的真实卖一另开一笔模拟。本金 $10，每笔最多 $2，持有到官方结算。卖一缺失或两边价格对不上就只记原因，不编造价格。这笔账不进实盘，也不计入 Plan21 收益。';
+  }
   if (pmPlan14Auto) pmPlan14Auto.textContent = plan14.auto?.enabled ? '运行中' : '已停止';
   const versionEl = document.querySelector('#pmPlan14VersionPnl');
   if (versionEl) {

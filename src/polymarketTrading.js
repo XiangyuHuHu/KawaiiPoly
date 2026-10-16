@@ -75,6 +75,13 @@ import { PLAN17_ID, PLAN17_VERSION } from './polymarketPlan17.js';
 import { PLAN18_ID, PLAN19_ID, DIVINATION_PLANS, DIVINATION_PLAN_IDS } from './polymarketPlan18.js';
 import { PLAN21_ID, PLAN21_VERSION } from './polymarketPlan21.js';
 import { PLAN22_ID, PLAN22_VERSION, plan22ControlPnl } from './polymarketPlan22.js';
+import {
+  INVERSE_RESEARCH_ID,
+  applyInverseObservation,
+  createInverseAccount,
+  settleInverseTrade,
+  summarizeInverseAccount
+} from './polymarketInverseResearch.js';
 import { resolvePlan2ExitLockThresholds } from './fiveMinuteDecision.js';
 import { buildConfidenceCalibrationTable } from './polymarketCalibration.js';
 import { computeDynamicExitPrices, computeTradeEdge, resolveStopLossAbsoluteFloor, updateAndEvaluateTrailingTakeProfit } from './polymarketSizing.js';
@@ -4089,6 +4096,7 @@ export class PolymarketTradingService {
       profitExperimentAuto: planId === PLAN14_ID ? { enabled: this.plan14ProfitExperimentEnabled() } : undefined,
       profitExperiment: planId === PLAN14_ID ? summarizePlan14ProfitExperiment(bucket.plan14ProfitExperiment) : undefined,
       researchArchiveErrors: planId === PLAN14_ID ? (bucket.plan14ResearchArchiveErrors || 0) : undefined,
+      inverseResearch: planId === PLAN21_ID ? summarizeInverseAccount(bucket.inverseResearch) : undefined,
       opportunitySummary: planId === 'plan5'
         ? this.summarizePlan5Opportunities(planId)
         : undefined,
@@ -5165,6 +5173,13 @@ export class PolymarketTradingService {
     };
     bucket.portfolio.cash = round2(bucket.portfolio.cash - usd);
     bucket.paperOrders.push(order);
+    if (input.recordInverse === true) this.recordPlan21Inverse({
+      primaryOrder: order,
+      primaryAsk: ask,
+      oppositeAsk: input.oppositeAsk,
+      oppositeBid: input.oppositeBid,
+      oppositeTokenId: input.oppositeTokenId
+    });
     bucket.auto = {
       ...bucket.auto,
       lastAction: 'bought',
@@ -5174,6 +5189,36 @@ export class PolymarketTradingService {
     };
     await this.persist(id);
     return order;
+  }
+
+  recordPlan21Inverse(input = {}) {
+    if (this.config.plan21InverseEnabled === false) return null;
+    const bucket = this.getBucket(PLAN21_ID);
+    if (bucket.inverseResearch?.id !== INVERSE_RESEARCH_ID || bucket.inverseResearch.liveOrdersEnabled !== false) {
+      bucket.inverseResearch = createInverseAccount();
+    }
+    const configured = Number(this.config.paperTakerFeeRate);
+    const feeRate = this.config.paperTakerFeeEnabled === false
+      ? 0
+      : (Number.isFinite(configured) && configured >= 0 ? configured : 0.07);
+    try {
+      return applyInverseObservation(bucket.inverseResearch, { ...input, feeRate });
+    } catch (error) {
+      bucket.inverseResearch.invalidCount = (Number(bucket.inverseResearch.invalidCount) || 0) + 1;
+      return { filled: false, reason: error.message || 'inverse_error' };
+    }
+  }
+
+  settlePlan21Inverse(order, outcome) {
+    const account = this.getBucket(PLAN21_ID).inverseResearch;
+    if (!account || account.liveOrdersEnabled !== false) return null;
+    return settleInverseTrade(account, {
+      marketSlug: order?.marketSlug,
+      officialOutcome: outcome?.officialOutcome,
+      voided: outcome?.void === true,
+      outcomes: outcome?.outcomes,
+      outcomePrices: outcome?.outcomePrices
+    });
   }
 
   async notePlan21Scan({ reason = '', bought = 0 } = {}) {
@@ -8069,6 +8114,7 @@ export class PolymarketTradingService {
         bucket.portfolio.cash = round2(bucket.portfolio.cash + payoutUsd);
         this.refreshDailyBucket(id);
         bucket.daily.realizedPnl = round2(bucket.daily.realizedPnl + pnl);
+        if (id === PLAN21_ID) this.settlePlan21Inverse(order, outcome);
         settledOrders.push(order);
         continue;
       }

@@ -1012,6 +1012,7 @@ function buildPolymarketConfig() {
     plan21Symbols: String(process.env.POLYMARKET_PLAN21_SYMBOLS || 'BTC,ETH')
       .split(',').map((item) => item.trim().toUpperCase()).filter((item) => ['BTC', 'ETH'].includes(item)),
     plan21LoopMs: Number(process.env.POLYMARKET_PLAN21_LOOP_MS || 15000),
+    plan21InverseEnabled: process.env.POLYMARKET_PLAN21_INVERSE_ENABLED !== 'false',
     // Plan22 — 15m K 线综合错价。默认关。打开后只开纸面自动和新仓，实盘路径不存在。
     plan22Enabled: process.env.POLYMARKET_PLAN22_ENABLED === 'true',
     plan22NewEntriesEnabled: process.env.POLYMARKET_PLAN22_ENABLED === 'true'
