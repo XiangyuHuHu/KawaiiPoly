@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
-import { normalizeUsBook } from '../src/polymarketUs/gateway.js';
+import { cacheAgeMsFrom, normalizeUsBook, PolymarketUsGateway } from '../src/polymarketUs/gateway.js';
 import { runPolymarketUsCycle, tradeObservationTime } from '../src/polymarketUs/runner.js';
 
 const NOW = new Date('2026-10-14T15:37:00.000Z');
@@ -260,26 +260,23 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
   assert.equal(row.entry, 0.5);
 });
 
-test('book snapshot age is measured at the decision, not from the last trade', () => {
-  const decided = new Date('2026-10-16T07:23:00.000Z');
+test('decision age uses the BBO cache Age, not the last trade or book transactTime', () => {
+  const decided = new Date('2026-10-16T15:12:57.735Z');
   const book = normalizeUsBook({
     marketData: {
-      transactTime: '2026-10-16T07:22:50.469243375Z',
+      transactTime: '2026-10-16T15:12:32.594158856Z',
+      stats: { lastPriceSample: { ts: '2026-10-16T15:12:32.594158856Z' } },
       bids: [],
       offers: []
     }
   });
-  assert.equal(book.transactTime, '2026-10-16T07:22:50.469243375Z');
-  assert.equal(tradeObservationTime(book, decided), '2026-10-16T07:22:50.469Z');
-  assert.equal(
-    tradeObservationTime({ transactTime: '2026-10-16T07:23:01.200000000Z' }, decided),
-    decided.toISOString()
-  );
-  assert.equal(
-    tradeObservationTime({ transactTime: '2026-10-16T07:23:04.000000000Z' }, decided),
-    '2026-10-16T07:23:04.000Z'
-  );
+  assert.equal(book.transactTime, '2026-10-16T15:12:32.594158856Z');
+  assert.equal(tradeObservationTime(book, decided), decided.toISOString());
+  assert.equal(tradeObservationTime({ cacheAgeMs: 11_000 }, decided), '2026-10-16T15:12:46.735Z');
+  assert.equal(tradeObservationTime({ cacheAgeMs: 46_000 }, decided), '2026-10-16T15:12:11.735Z');
   assert.equal(tradeObservationTime(null, decided), decided.toISOString());
+  assert.equal(cacheAgeMsFrom({ get: (name) => (name === 'age' ? '11' : null) }), 11_000);
+  assert.equal(cacheAgeMsFrom(undefined), 0);
 });
 
 test('an old last trade does not stale a book snapshotted at the decision', async () => {
@@ -325,7 +322,89 @@ test('an old last trade does not stale a book snapshotted at the decision', asyn
   assert.equal(report.placed, 1);
 });
 
-test('a book snapshot older than 45s at the decision is still stale_bbo', async () => {
+test('a 15m book 404 with an old last trade still places on the BBO just received', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'btc_misprice:cpc-btc-updown-15m-2026-10-16-1430z:down',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-2026-10-16-1430z',
+    side: 'Down',
+    limit_price: 0.5,
+    ask: 0.5,
+    model_prob: 0.7,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    bbo_at: new Date(Date.now() - 120_000).toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = new PolymarketUsGateway({
+    fetchImpl: async (url) => {
+      if (String(url).endsWith('/book')) {
+        return new Response(JSON.stringify({ message: 'not found' }), { status: 404 });
+      }
+      return new Response(JSON.stringify({
+        marketData: {
+          marketSlug: 'cpc-btc-updown-15m-2026-10-16-1430z',
+          bestBid: { value: '0.4900', currency: 'USD' },
+          bestAsk: { value: '0.5000', currency: 'USD' },
+          longQuote: { value: '0.5000' },
+          shortQuote: { value: '0.5000' },
+          askShares: '200',
+          bidShares: '200',
+          lastPriceSample: { ts: freshSample(120_000) }
+        }
+      }), { status: 200, headers: { age: '11' } });
+    }
+  });
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(report.results[0].code, 'pass');
+  assert.equal(report.placed, 1);
+});
+
+test('an old book transactTime does not stale a BBO received within 45s', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'btc_misprice:cpc-btc-updown-15m-2026-10-16-1500z:up',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-2026-10-16-1500z',
+    side: 'Up',
+    limit_price: 0.5,
+    ask: 0.5,
+    model_prob: 0.7,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    bbo_at: new Date(Date.now() - 120_000).toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const gateway = {
+    async getBbo() {
+      return normalizedBbo({
+        bestBid: 0.49,
+        bestAsk: 0.5,
+        yesAsk: 0.5,
+        spread: 0.01,
+        sampledAt: freshSample(120_000),
+        observedAt: freshSample(120_000),
+        cacheAgeMs: 11_000
+      });
+    },
+    async getBook() {
+      return {
+        asks: [{ price: 0.5, shares: 100 }],
+        bids: [{ price: 0.49, shares: 100 }],
+        transactTime: freshSample(120_000),
+        cacheAgeMs: 24_000
+      };
+    }
+  };
+  const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
+  assert.equal(report.results[0].code, 'pass');
+  assert.equal(report.placed, 1);
+});
+
+test('a cached BBO older than 45s at the decision is still stale_bbo', async () => {
   const { dir, config } = await fixture();
   await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
     id: 'sig-btc-old-print',
@@ -349,14 +428,15 @@ test('a book snapshot older than 45s at the decision is still stale_bbo', async 
         yesAsk: 0.5,
         spread: 0.01,
         sampledAt: freshSample(1_000),
-        observedAt: freshSample(1_000)
+        observedAt: freshSample(1_000),
+        cacheAgeMs: 46_000
       });
     },
     async getBook() {
       return {
         asks: [{ price: 0.5, shares: 100 }],
         bids: [{ price: 0.49, shares: 100 }],
-        transactTime: freshSample(46_000)
+        transactTime: freshSample(1_000)
       };
     }
   };

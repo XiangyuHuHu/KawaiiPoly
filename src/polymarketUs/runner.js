@@ -21,14 +21,6 @@ import {
   windowsFromPositions
 } from './trading.js';
 
-function parseExchangeTime(value) {
-  if (value == null || value === '') return null;
-  const text = String(value).trim();
-  const normalized = text.replace(/(\.\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/, '$1');
-  const ms = Date.parse(normalized);
-  return Number.isFinite(ms) ? ms : null;
-}
-
 function quoteFromSignal(signal) {
   const side = normalizeOutcomeSide(signal?.side);
   const ask = readNumber(signal?.ask, signal?.market_price, signal?.marketPrice);
@@ -73,17 +65,15 @@ function sideDepthUsd(bbo, book, side) {
 
 /**
  * 45 秒对着决定下单这一刻。
- * 订单簿 transactTime 是这次快照的时间。lastPriceSample 只是上一笔成交，安静的盘可以超过 45 秒，不能拿来判 BBO 过期。
- * 没有快照时间时，用 BBO 响应返回之后的本地时钟，也就是刚刚看见这份报价的时刻。
- * 快照比本地时钟快不超过 2 秒时，按决定时刻计，和扫描侧一样。
+ * BBO 的 lastPriceSample 和订单簿的 transactTime 都是上一笔成交，安静的 15 分钟盘会超过 45 秒。
+ * 订单簿经常 200 且带着这个成交时间，所以不能把「没有 transactTime」当成唯一的回退。
+ * 年龄用这次 BBO 响应的缓存 Age。没有 Age（或订单簿 404）时，用 BBO 响应返回之后的本地时钟。
  */
-export function tradeObservationTime(book, decidedAt) {
+export function tradeObservationTime(source, decidedAt) {
   const decidedMs = decidedAt.getTime();
-  const snapshotMs = parseExchangeTime(book?.transactTime || book?.transact_time);
-  if (snapshotMs == null) return decidedAt.toISOString();
-  const ahead = snapshotMs - decidedMs;
-  if (ahead > 0 && ahead <= 2_000) return decidedAt.toISOString();
-  return new Date(snapshotMs).toISOString();
+  const age = Number(source?.cacheAgeMs);
+  const cacheMs = Number.isFinite(age) && age > 0 ? age : 0;
+  return new Date(decidedMs - cacheMs).toISOString();
 }
 
 async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
@@ -114,10 +104,11 @@ async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
     };
   }
   const depthUsd = sideDepthUsd(bbo, book, signal.side);
+  const cacheAgeMs = readPresentNumber(bbo.cacheAgeMs) ?? 0;
   return {
     quote: {
       ...bbo,
-      observedAt: tradeObservationTime(book, decidedAt),
+      observedAt: tradeObservationTime({ cacheAgeMs }, decidedAt),
       depthUsd: depthUsd != null ? depthUsd : (local?.depthUsd ?? null),
       spread: bbo.spread ?? local?.spread ?? null
     },

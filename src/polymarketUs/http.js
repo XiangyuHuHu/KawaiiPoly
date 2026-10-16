@@ -53,5 +53,5 @@ export async function usRequest({
     error.hostname = url.hostname;
     throw error;
   }
-  return { data, url };
+  return { data, url, headers: response.headers ?? null };
 }

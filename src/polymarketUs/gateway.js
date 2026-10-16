@@ -61,6 +61,14 @@ export function normalizeBbo(payload) {
   return normalizeUsBbo(payload);
 }
 
+/** CDN Age is seconds since this response body was generated. Missing Age means just received. */
+export function cacheAgeMsFrom(headers) {
+  const raw = typeof headers?.get === 'function' ? headers.get('age') : headers?.age;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0) return 0;
+  return Math.round(seconds * 1000);
+}
+
 export function quoteForSide(bbo, side) {
   if (!bbo) return null;
   if (side === 'no') return bbo.noAsk ?? null;
@@ -216,15 +224,15 @@ export class PolymarketUsGateway {
   async getBbo(slug) {
     if (!slug) throw new Error('slug is required');
     const safe = encodeURIComponent(tradingSlug(slug));
-    const { data } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}/bbo`);
-    return normalizeUsBbo(data);
+    const { data, headers } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}/bbo`);
+    return { ...normalizeUsBbo(data), cacheAgeMs: cacheAgeMsFrom(headers) };
   }
 
   async getBook(slug) {
     if (!slug) throw new Error('slug is required');
     const safe = encodeURIComponent(tradingSlug(slug));
-    const { data } = await this.request(`${US_MARKET_PATHS.book}/${safe}/book`);
-    return normalizeUsBook(data);
+    const { data, headers } = await this.request(`${US_MARKET_PATHS.book}/${safe}/book`);
+    return { ...normalizeUsBook(data), cacheAgeMs: cacheAgeMsFrom(headers) };
   }
 
   async getSettlement(slug) {
