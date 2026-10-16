@@ -1,3 +1,4 @@
+import { calibratePlan36Confidence } from './paperAbContrasts.js';
 import { getSlotSchedule, timeframeToSlotMinutes } from './polymarketSchedule.js';
 
 function round4(value) {
@@ -277,6 +278,7 @@ export function buildPolymarketPaperPlan3_6({
   portfolio = null,
   timeframe = '5m',
   paperMode = true,
+  calibrationTable = null,
   now = new Date()
 } = {}) {
   const symbol = signal?.symbol || sentiment?.symbol || 'BTC-USD';
@@ -349,6 +351,25 @@ export function buildPolymarketPaperPlan3_6({
   const confidenceFloor = Number(config.plan3_6MinSignalConfidence ?? 0.65);
   const minModelEdge = Number(config.plan3_6MinModelEdge ?? 0.05);
   const maxOverround = Number(config.plan3_6MaxOverround ?? 1.04);
+  // Control arm treats model confidence as if it were a probability.
+  // plan3_6b sets plan3_6CalibrateConfidence and replaces that score with a
+  // probability before the same minModelEdge filter. The raw confidence floor
+  // stays a signal-quality gate so the A/B isolates the edge definition.
+  const calibration = config.plan3_6CalibrateConfidence === true && Number.isFinite(modelConfidence)
+    ? calibratePlan36Confidence({
+      rawConfidence: modelConfidence,
+      entryPrice: tokenPrice,
+      calibrationTable,
+      symbol,
+      timeframe,
+      direction: favoriteDirection,
+      config
+    })
+    : null;
+  const probabilityForEdge = calibration ? calibration.probability : modelConfidence;
+  const modelEdge = Number.isFinite(probabilityForEdge) && Number.isFinite(tokenPrice)
+    ? round4(probabilityForEdge - tokenPrice)
+    : (Number.isFinite(modelConfidence) ? round4(modelConfidence - tokenPrice) : null);
   const observation = {
     candidate: true,
     key: executionKey,
@@ -370,7 +391,9 @@ export function buildPolymarketPaperPlan3_6({
     marketOverround,
     modelDirection,
     modelConfidence: Number.isFinite(modelConfidence) ? round4(modelConfidence) : null,
-    modelEdge: Number.isFinite(modelConfidence) ? round4(modelConfidence - tokenPrice) : null,
+    modelProbability: calibration ? calibration.probability : null,
+    calibrationSource: calibration?.source || null,
+    modelEdge,
     modelAligned: modelDirection ? modelDirection === favoriteDirection : null,
     secondsRemaining
   };

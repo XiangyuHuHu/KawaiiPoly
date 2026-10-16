@@ -16,11 +16,19 @@ const pmPlan21Equity = document.querySelector('#pmPlan21Equity');
 const pmPlan21Return = document.querySelector('#pmPlan21Return');
 const pmPlan22Equity = document.querySelector('#pmPlan22Equity');
 const pmPlan22Return = document.querySelector('#pmPlan22Return');
+const pmPlan14bEquity = document.querySelector('#pmPlan14bEquity');
+const pmPlan14bReturn = document.querySelector('#pmPlan14bReturn');
+const pmPlan16bEquity = document.querySelector('#pmPlan16bEquity');
+const pmPlan16bReturn = document.querySelector('#pmPlan16bReturn');
+const pmPlan26bEquity = document.querySelector('#pmPlan26bEquity');
+const pmPlan26bReturn = document.querySelector('#pmPlan26bReturn');
+const pmPlan36bEquity = document.querySelector('#pmPlan36bEquity');
+const pmPlan36bReturn = document.querySelector('#pmPlan36bReturn');
 const pmRefreshAll = document.querySelector('#pmRefreshAll');
 const columns = [...document.querySelectorAll('.pm-dual-column')];
 
-const PAPER_PLAN_IDS = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'];
-const EVENT_PAPER_PLANS = new Set(['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22']);
+const PAPER_PLAN_IDS = ['plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22', 'plan14b', 'plan16b', 'plan2_6b', 'plan3_6b'];
+const EVENT_PAPER_PLANS = new Set(['plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22', 'plan14b', 'plan16b', 'plan2_6b', 'plan3_6b']);
 const PLAN_IDS = [...PAPER_PLAN_IDS];
 const INDEPENDENT_PLANS = new Set();
 const PAPER_SYMBOLS = ['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD'];
@@ -33,7 +41,11 @@ const PLAN_SWITCH_HINTS = {
   plan18: 'Plan18 · 随机对照组 · 梅花易数起卦定四币 5m/15m/1h 涨跌 · Plan17 要明显好过它才算有效 · 仅模拟',
   plan19: 'Plan19 · 随机对照组 · 小六壬起卦定四币 5m/15m/1h 涨跌 · 与 Plan18 同盘同时对比 · 仅模拟',
   plan21: 'Plan21 · BTC/ETH 5 分钟买落后方 · 只做回测里扣费后为正的三格 · 3 分钟且 20–35¢ 不买 · 每笔 $5 · 仅模拟',
-  plan22: 'Plan22 · 15 分钟 K 线综合错价 · 5–12 分钟、现货锁定、扣费后正期望才买 · 持有到结算 · 默认关闭 · 仅模拟'
+  plan22: 'Plan22 · 15 分钟 K 线综合错价 · 5–12 分钟、现货锁定、扣费后正期望才买 · 持有到结算 · 默认关闭 · 仅模拟',
+  plan14b: 'Plan14b · 对照臂 · 当前 5m 现货权重减半 · 与 Plan14 分开记账 · 看扣费后净 ROI、回撤、同一卖一档 · 仅模拟',
+  plan16b: 'Plan16b · 对照臂 · 卖一下限 0.20（对照仍是 0.08）· 与 Plan16 分开记账 · 仅模拟',
+  plan2_6b: 'Plan2.6b · 对照臂 · 入场上限 0.80（对照仍是 0.90）· 纸面循环，不进实盘',
+  plan3_6b: 'Plan3.6b · 对照臂 · 置信度先校准成概率再算 edge · 对照仍把置信度当概率 · 仅模拟'
 };
 const state = {
   latestStatus: null,
@@ -427,6 +439,10 @@ function renderComparison(status = {}) {
   renderPlanSummary(pmPlan19Equity, pmPlan19Return, status.plans?.plan19 || {});
   renderPlanSummary(pmPlan21Equity, pmPlan21Return, status.plans?.plan21 || {});
   renderPlanSummary(pmPlan22Equity, pmPlan22Return, status.plans?.plan22 || {});
+  renderPlanSummary(pmPlan14bEquity, pmPlan14bReturn, status.plans?.plan14b || {});
+  renderPlanSummary(pmPlan16bEquity, pmPlan16bReturn, status.plans?.plan16b || {});
+  renderPlanSummary(pmPlan26bEquity, pmPlan26bReturn, status.plans?.plan2_6b || {});
+  renderPlanSummary(pmPlan36bEquity, pmPlan36bReturn, status.plans?.plan3_6b || {});
   const inverseEl = document.querySelector('#pmPlan21Inverse');
   if (inverseEl) {
     const inverse = status.plans?.plan21?.inverseResearch;
@@ -1241,7 +1257,7 @@ function renderOrderRow(order, fallbackPlanId = null) {
     ? `${order.pnl >= 0 ? '+' : ''}$${formatNumber(order.pnl)}`
     : '--';
   const pid = String(order.planId || fallbackPlanId || '').toLowerCase();
-  const simpleSettlement = ['plan3', 'plan3_6', 'plan5', 'plan11', 'plan12', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(pid);
+  const simpleSettlement = ['plan3', 'plan3_6', 'plan3_6b', 'plan5', 'plan11', 'plan12', 'plan14', 'plan14b', 'plan15', 'plan16', 'plan16b', 'plan17', 'plan18', 'plan19', 'plan21', 'plan22'].includes(pid);
   const modelExit = ['model-stop-loss', 'model-take-profit'].includes(order.exitStatus);
   const exitText = modelExit ? formatOrderExitLabel(order) : simpleSettlement
     ? (order.fillStatus === 'expired' || order.exitStatus === 'expired-unfilled'

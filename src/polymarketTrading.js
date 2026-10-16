@@ -71,6 +71,15 @@ import { createPlan14ProfitExperiment, observePlan14ProfitExperiment, resolvePla
   releasePlan14ProfitExperiment, summarizePlan14ProfitExperiment } from './plan14ProfitExperiment.js';
 import { PLAN15_ID, PLAN15_VERSION } from './polymarketPlan15.js';
 import { PLAN16_ID, PLAN16_VERSION } from './polymarketPlan16.js';
+import {
+  PLAN14B_VERSION,
+  PLAN16B_VERSION,
+  PLAN2_6B_ID,
+  contrastPlan14Config,
+  contrastPlan26Config,
+  isPaperContrastPlan,
+  paperContrastEntriesEnabled
+} from './paperAbContrasts.js';
 import { PLAN17_ID, PLAN17_VERSION } from './polymarketPlan17.js';
 import { PLAN18_ID, PLAN19_ID, DIVINATION_PLANS, DIVINATION_PLAN_IDS } from './polymarketPlan18.js';
 import { PLAN21_ID, PLAN21_VERSION } from './polymarketPlan21.js';
@@ -116,12 +125,13 @@ import {
   resolveEntrySizeScale
 } from './streakSizing.js';
 
-export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan15', 'plan16', 'plan17', 'plan18', 'plan19', 'plan20', 'plan21', 'plan22', 'plan3', 'plan3_5', 'plan3_6', 'plan5'];
+export const PLAN_IDS = ['plan1', 'plan2', 'plan2_5', 'plan2_6', 'plan11', 'plan13', 'plan14', 'plan14b', 'plan15', 'plan16', 'plan16b', 'plan17', 'plan18', 'plan19', 'plan20', 'plan21', 'plan22', 'plan2_6b', 'plan3', 'plan3_5', 'plan3_6', 'plan3_6b', 'plan5'];
 export const PAPER_ORDERS_HARD_CAP = 500;
 const PLAN2_STRATEGY_VERSIONS = Object.freeze({
   plan2: 'plan2_classic_v20260729',
   plan2_5: 'plan2_5_audit_v20260729',
   plan2_6: PLAN2_6_VERSION,
+  plan2_6b: 'plan2_6b_entry_max_0_80',
   plan13: PLAN13_VERSION
 });
 
@@ -484,7 +494,7 @@ function freshPlanBucket(planId = 'plan1') {
     auto: {
       enabled: false,
       strategy: planId,
-      timeframes: planId === 'plan3_6' ? [...PLAN3_6_PAPER_TIMEFRAMES] : ['5m', '15m'],
+      timeframes: planId === 'plan3_6' || planId === 'plan3_6b' ? [...PLAN3_6_PAPER_TIMEFRAMES] : ['5m', '15m'],
       symbols: threeCoin
         ? ['BTC-USD', 'ETH-USD', 'SOL-USD']
         : planId === 'plan3'
@@ -499,7 +509,7 @@ function freshPlanBucket(planId = 'plan1') {
       realizedPnl: 0
     }
   };
-  if (planId === 'plan1' || planId === 'plan2' || planId === 'plan2_5' || planId === 'plan2_6' || planId === 'plan13' || planId === 'plan11') {
+  if (planId === 'plan1' || planId === 'plan2' || planId === 'plan2_5' || planId === 'plan2_6' || planId === 'plan2_6b' || planId === 'plan13' || planId === 'plan11') {
     return {
       ...base,
       trajectoryExperimentLog: []
@@ -527,7 +537,7 @@ function freshPlanBucket(planId = 'plan1') {
       plan5ShadowObservations: []
     };
   }
-  if (planId === 'plan3_6') {
+  if (planId === 'plan3_6' || planId === 'plan3_6b') {
     return {
       ...base,
       plan36ObservationLog: []
@@ -545,17 +555,21 @@ const DEFAULT_STATE = {
     plan11: freshPlanBucket('plan11'),
     plan13: freshPlanBucket('plan13'),
     plan14: freshPlanBucket('plan14'),
+    plan14b: freshPlanBucket('plan14b'),
     plan15: freshPlanBucket('plan15'),
     plan16: freshPlanBucket('plan16'),
+    plan16b: freshPlanBucket('plan16b'),
     plan17: freshPlanBucket('plan17'),
     plan18: freshPlanBucket('plan18'),
     plan19: freshPlanBucket('plan19'),
     plan20: freshPlanBucket('plan20'),
     plan21: freshPlanBucket('plan21'),
     plan22: freshPlanBucket('plan22'),
+    plan2_6b: freshPlanBucket('plan2_6b'),
     plan3: freshPlanBucket('plan3'),
     plan3_5: freshPlanBucket('plan3_5'),
     plan3_6: freshPlanBucket('plan3_6'),
+    plan3_6b: freshPlanBucket('plan3_6b'),
     plan5: freshPlanBucket('plan5')
   },
   liveControl: {
@@ -945,7 +959,8 @@ export class PolymarketTradingService {
   }
 
   isPlan2FamilyPlan(planId = 'plan1') {
-    return isPlan2Family(this.normalizePlanId(planId));
+    const id = this.normalizePlanId(planId);
+    return isPlan2Family(id) || id === PLAN2_6B_ID;
   }
 
   appliesLiveGlobalLossRecovery(planId = 'plan1') {
@@ -958,7 +973,11 @@ export class PolymarketTradingService {
   }
 
   resolvePlan2Config(planId = 'plan2') {
-    return resolvePlan2ProfileConfig(this.config, this.normalizePlanId(planId));
+    const id = this.normalizePlanId(planId);
+    if (id === PLAN2_6B_ID) {
+      return resolvePlan2ProfileConfig(contrastPlan26Config(this.config), 'plan2_6');
+    }
+    return resolvePlan2ProfileConfig(this.config, id);
   }
 
   isPlan2ExitSyncedToPaperFor(planId = 'plan2') {
@@ -1566,7 +1585,7 @@ export class PolymarketTradingService {
     }
     // Plan14 is a forward-validation experiment. Historical selection alone
     // can never put it into the live scheduler.
-    enabled = enabled.filter((planId) => planId !== PLAN20_ID && planId !== PLAN21_ID && planId !== PLAN22_ID && planId !== PLAN14_ID && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID);
+    enabled = enabled.filter((planId) => planId !== PLAN20_ID && planId !== PLAN21_ID && planId !== PLAN22_ID && planId !== PLAN14_ID && planId !== 'plan14b' && planId !== PLAN15_ID && planId !== PLAN16_ID && planId !== 'plan16b' && planId !== PLAN17_ID && planId !== PLAN18_ID && planId !== PLAN19_ID && !isPaperContrastPlan(planId));
     if (this.config.plan5Enabled !== true) {
       enabled = enabled.filter((planId) => planId !== 'plan5');
     }
@@ -1771,6 +1790,9 @@ export class PolymarketTradingService {
     }
     if (id === PLAN22_ID && enabled) {
       throw new Error('Plan22 只用于 15 分钟 K 线综合的模拟，禁止实盘。');
+    }
+    if (isPaperContrastPlan(id) && enabled) {
+      throw new Error(`${id} 是纸面 A/B 对照，禁止实盘。`);
     }
     if (id === PLAN13_ID && enabled && this.config.plan13LiveEnabled !== true) {
       throw new Error('Plan13 实盘需 POLYMARKET_PLAN13_LIVE_ENABLED=true。');
@@ -4549,7 +4571,8 @@ export class PolymarketTradingService {
     if (enabled && planId === 'plan5' && this.config.plan5Enabled === false) {
       throw new Error('Plan5 已停用：历史实盘负期望，默认不再开仓。');
     }
-    if (enabled && planId === 'plan3_6' && this.config.plan3_6Enabled === false) {
+    if (enabled && planId === 'plan3_6' && this.config.plan3_6Enabled === false
+      && !paperContrastEntriesEnabled(this.config, 'plan3_6b')) {
       throw new Error('Plan3.6 已停用：当前版本负期望，默认不再开仓。');
     }
     if (enabled && planId === PLAN11_ID && this.config.plan11Enabled === false) {
@@ -4845,8 +4868,11 @@ export class PolymarketTradingService {
   }
 
   async createPlan16PaperOrder(input = {}) {
-    const id = PLAN16_ID;
-    if (this.config.plan16Enabled === false) throw new Error('Plan16 已禁用。');
+    const id = input.planId === 'plan16b' ? 'plan16b' : PLAN16_ID;
+    if (id === 'plan16b' && !paperContrastEntriesEnabled(this.config, 'plan16b')) {
+      throw new Error('Plan16b 纸面对照已禁用。');
+    }
+    if (id === PLAN16_ID && this.config.plan16Enabled === false) throw new Error('Plan16 已禁用。');
     this.ensurePortfolioReady(id);
     const ask = Number(input.ask);
     const usd = round2(Number(input.usd));
@@ -4888,7 +4914,7 @@ export class PolymarketTradingService {
         bucket: input.bucket
       },
       targetTimeIso: input.endDate || null,
-      strategyVersion: PLAN16_VERSION,
+      strategyVersion: id === 'plan16b' ? PLAN16B_VERSION : PLAN16_VERSION,
       createdAtIso: new Date().toISOString(),
       settlementStatus: 'open',
       status: 'paper-filled',
@@ -4896,7 +4922,7 @@ export class PolymarketTradingService {
     }, this.config);
     if (!(Number(draft.shares) > 0)) throw new Error('Plan16 成交份数为 0。');
     const order = {
-      id: `pm-plan16-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      id: `pm-${id}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       ...draft
     };
     bucket.portfolio.cash = round2(bucket.portfolio.cash - usd);
@@ -5345,7 +5371,7 @@ export class PolymarketTradingService {
     const marketPrice = Number(direction === 'up' ? sentiment.upPrice : sentiment.downPrice);
     const actionLimit = Number(plan?.action?.limitPrice);
     // Plan14 prices its entry on a CLOB book fetched moments ago; the cached sentiment ask is older.
-    const price = (normalizedPlanId === 'plan3_6' || normalizedPlanId === PLAN14_ID)
+    const price = (normalizedPlanId === 'plan3_6' || normalizedPlanId === 'plan3_6b' || normalizedPlanId === PLAN14_ID || normalizedPlanId === 'plan14b')
       && Number.isFinite(actionLimit)
       && actionLimit > 0
       && actionLimit < 1
@@ -5475,12 +5501,18 @@ export class PolymarketTradingService {
     this.ensureDailyLossBudget(id);
     const bucket = this.getBucket(id);
     const draft = this.buildOrderDraft({ ...input, planId: id });
+    if (id === 'plan2_6b') {
+      const cap = Number(contrastPlan26Config(this.config).plan2_6EntryMaxPrice) || 0.80;
+      if (Number(draft.limitPrice) > cap + 1e-9) {
+        throw new Error(`Plan2.6b 入场价高于 ${(cap * 100).toFixed(0)}¢。`);
+      }
+    }
     const timeframe = draft.timeframe || '15m';
-    if (id === PLAN14_ID && timeframe !== '5m') {
+    if ((id === PLAN14_ID || id === 'plan14b') && timeframe !== '5m') {
       throw new Error('Plan14：15m 暂停新开仓，仅验证 5m。');
     }
     const slotIso = draft.slotIso || input.plan?.slotIso;
-    if (id === PLAN14_ID) {
+    if (id === PLAN14_ID || id === 'plan14b') {
       const gate = input.plan?.action?.expectedValueGate;
       if (gate?.policyVersion === PLAN14_VERSION) {
         const sampledTimes = [gate.inputs?.quoteTimeMs, gate.bookTimeMs?.up, gate.bookTimeMs?.down];
@@ -5490,12 +5522,13 @@ export class PolymarketTradingService {
           throw new Error('Plan14：候选等待期间报价已过期，本轮不按旧价模拟成交。');
         }
       }
+      const exposureConfig = id === 'plan14b' ? contrastPlan14Config(this.config) : this.config;
       const exposure = evaluatePlan14Exposure({ orders: bucket.paperOrders, slotIso, timeframe,
-        direction: draft.direction, config: this.config });
+        direction: draft.direction, config: exposureConfig });
       if (!exposure.allowed) throw new Error(exposure.reason);
-      draft.strategyVersion = PLAN14_VERSION;
+      draft.strategyVersion = id === 'plan14b' ? PLAN14B_VERSION : PLAN14_VERSION;
     }
-    const allowFlipReentry = id !== PLAN14_ID && Boolean(input.allowFlipReentry);
+    const allowFlipReentry = id !== PLAN14_ID && id !== 'plan14b' && Boolean(input.allowFlipReentry);
     if (!allowFlipReentry) {
       const stats = this.computeStats(id);
       const globalExposure = this.checkGlobalExposure({
@@ -7365,8 +7398,12 @@ export class PolymarketTradingService {
     if (id === 'plan5' && this.config.plan5Enabled !== true) {
       return { executed: false, planId: id, reason: 'plan5 disabled' };
     }
-    if (id === 'plan3_6' && this.config.plan3_6Enabled !== true) {
+    if (id === 'plan3_6' && this.config.plan3_6Enabled !== true
+      && !paperContrastEntriesEnabled(this.config, 'plan3_6b')) {
       return { executed: false, planId: id, reason: 'plan3_6 disabled' };
+    }
+    if (id === 'plan3_6b' && !paperContrastEntriesEnabled(this.config, 'plan3_6b')) {
+      return { executed: false, planId: id, reason: 'plan3_6b disabled' };
     }
     if (!bucket.auto.enabled) return { executed: false, planId: id, reason: 'auto paper trading disabled' };
     if (!bucket.portfolio.portfolioInitialized) return { executed: false, planId: id, reason: 'portfolio not configured' };
@@ -7699,16 +7736,20 @@ export class PolymarketTradingService {
     return events.length;
   }
 
-  async processPlan14PaperExits(resolveExitInputs, { nowMs = null } = {}) {
-    if (this.config.plan14Enabled === false || typeof resolveExitInputs !== 'function') return [];
-    const bucket = this.getBucket(PLAN14_ID);
+  async processPlan14PaperExits(resolveExitInputs, { nowMs = null, planId = PLAN14_ID } = {}) {
+    const exitPlanId = planId === 'plan14b' ? 'plan14b' : PLAN14_ID;
+    if (exitPlanId === PLAN14_ID && this.config.plan14Enabled === false) return [];
+    if (exitPlanId === 'plan14b' && !paperContrastEntriesEnabled(this.config, 'plan14b')) return [];
+    if (typeof resolveExitInputs !== 'function') return [];
+    const exitConfig = exitPlanId === 'plan14b' ? contrastPlan14Config(this.config) : this.config;
+    const bucket = this.getBucket(exitPlanId);
     const closed = [];
     let changed = false;
     for (const order of bucket.paperOrders) {
       // V9 research continues after an account exit until its window expires.
       if (order.settlementStatus !== 'open'
         && !(order.settlementStatus === 'settled' && [PLAN14_VERSION, PLAN14_V9_VERSION].includes(order.strategyVersion))) continue;
-      if (this.normalizePlanId(order.planId || PLAN14_ID) !== PLAN14_ID) continue;
+      if (this.normalizePlanId(order.planId || exitPlanId) !== exitPlanId) continue;
       const slotMs = Date.parse(order.slotIso);
       const slotMinutes = timeframeToSlotMinutes(order.timeframe || '5m');
       if (!Number.isFinite(slotMs) || !(slotMinutes > 0)) continue;
@@ -7732,11 +7773,11 @@ export class PolymarketTradingService {
       const observedAtMs = nowMs ?? Date.now();
       // Fetching inputs can straddle expiry; official settlement owns the expired window.
       if (observedAtMs >= Date.parse(order.targetTimeIso)) continue;
-      observePlan14ExitControl(order, quote, observedAtMs, this.config, resolvePaperTakerFeeRate(this.config));
-      const decision = evaluatePlan14Exit({ order, inputs: quote, nowMs: observedAtMs, config: this.config,
-        exitTakerFeeRate: resolvePaperTakerFeeRate(this.config) });
+      observePlan14ExitControl(order, quote, observedAtMs, exitConfig, resolvePaperTakerFeeRate(exitConfig));
+      const decision = evaluatePlan14Exit({ order, inputs: quote, nowMs: observedAtMs, config: exitConfig,
+        exitTakerFeeRate: resolvePaperTakerFeeRate(exitConfig) });
       if (Number.isFinite(decision.holdValue)) order.plan14HoldValue = decision.holdValue;
-      const confirmation = confirmPlan14Stop(order, decision, quote, observedAtMs, this.config);
+      const confirmation = confirmPlan14Stop(order, decision, quote, observedAtMs, exitConfig);
       {
         order.plan14StopConfirmation = confirmation.state;
         const observation = {
@@ -7794,11 +7835,11 @@ export class PolymarketTradingService {
       order.settledAtIso = new Date(observedAtMs).toISOString();
       this.attachSettlementLossAnalysis(order);
       bucket.portfolio.cash = round2(bucket.portfolio.cash + proceeds);
-      this.refreshDailyBucket(PLAN14_ID);
+      this.refreshDailyBucket(exitPlanId);
       bucket.daily.realizedPnl = round2(bucket.daily.realizedPnl + pnl);
       closed.push(order);
     }
-    if (closed.length || changed) await this.persist(PLAN14_ID);
+    if (closed.length || changed) await this.persist(exitPlanId);
     return closed;
   }
 
@@ -8071,7 +8112,7 @@ export class PolymarketTradingService {
         order.settlementFetchFailures = (Number(order.settlementFetchFailures) || 0) + 1;
         continue;
       }
-      if (id === PLAN15_ID || id === PLAN16_ID || id === PLAN17_ID || id === PLAN18_ID || id === PLAN19_ID || id === PLAN21_ID || id === PLAN22_ID) {
+      if (id === PLAN15_ID || id === PLAN16_ID || id === 'plan16b' || id === PLAN17_ID || id === PLAN18_ID || id === PLAN19_ID || id === PLAN21_ID || id === PLAN22_ID) {
         if (outcome?.priceSource !== 'polymarket-official') continue;
         const label = String(outcome?.officialOutcome || '').trim();
         let won;
@@ -10830,12 +10871,12 @@ function mergePlanBucket(planId, source = {}) {
       ? source.plan5ShadowObservations.slice(0, 10000)
       : [];
   }
-  if (planId === 'plan3_6') {
+  if (planId === 'plan3_6' || planId === 'plan3_6b') {
     merged.plan36ObservationLog = Array.isArray(source.plan36ObservationLog)
       ? source.plan36ObservationLog.slice(0, 10000)
       : [];
   }
-  if (planId === 'plan1' || planId === 'plan2' || planId === 'plan2_5' || planId === 'plan2_6' || planId === 'plan13' || planId === 'plan11') {
+  if (planId === 'plan1' || planId === 'plan2' || planId === 'plan2_5' || planId === 'plan2_6' || planId === 'plan2_6b' || planId === 'plan13' || planId === 'plan11') {
     merged.trajectoryExperimentLog = Array.isArray(source.trajectoryExperimentLog)
       ? source.trajectoryExperimentLog.slice(0, 400)
       : [];
@@ -11069,15 +11110,15 @@ function migrateState(parsed = {}) {
 
 function normalizeTimeframes(timeframes, planId = null) {
   const id = String(planId || '').toLowerCase();
-  if (id === PLAN14_ID) return ['5m'];
+  if (id === PLAN14_ID || id === 'plan14b') return ['5m'];
   const allowed = id === PLAN13_ID
     ? new Set(['15m'])
-    : id === 'plan3_6'
+    : id === 'plan3_6' || id === 'plan3_6b'
     ? new Set(['5m', '15m', '1h', '1d', 'hourly', 'daily', '60m', '24h'])
     : new Set(['5m', '15m']);
   const fallback = id === PLAN13_ID
     ? ['15m']
-    : id === 'plan3_6'
+    : id === 'plan3_6' || id === 'plan3_6b'
       ? [...PLAN3_6_PAPER_TIMEFRAMES]
       : ['5m', '15m'];
   const normalized = (Array.isArray(timeframes) ? timeframes : fallback)
