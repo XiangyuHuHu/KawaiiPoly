@@ -13,6 +13,7 @@ import {
   backtestPlan22,
   evaluatePlan22,
   plan22InputsFromSignal,
+  plan22ResolveSpotQuoteMs,
   plan22SmokeRows
 } from '../src/polymarketPlan22.js';
 
@@ -58,6 +59,11 @@ test('buys only a 15m lock with after-fee mispricing', () => {
   })).reason, 'edge_after_fee');
   assert.equal(evaluatePlan22(edgeInput({ upBook: { bestBid: 0.30, bestAsk: 0.48 } })).reason, 'wide_spread');
   assert.equal(evaluatePlan22(edgeInput({ spotQuoteMs: start })).reason, 'spot_age');
+  const now = start + 8 * 60_000;
+  assert.equal(evaluatePlan22(edgeInput({ nowMs: now, spotQuoteMs: now + 2_000 })).ok, true);
+  assert.equal(evaluatePlan22(edgeInput({ nowMs: now, spotQuoteMs: now + 30_000 })).reason, 'spot_age');
+  assert.equal(plan22ResolveSpotQuoteMs({ parsedQuoteMs: now + 30_000, receivedAtMs: now }), now);
+  assert.equal(plan22ResolveSpotQuoteMs({ parsedQuoteMs: now + 1_000, receivedAtMs: now, nowMs: now }), now + 1_000);
   assert.equal(evaluatePlan22(edgeInput({ spot: 99.8 })).reason, 'spot_disagrees');
 });
 

@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluatePlan21, plan21Window, PLAN21_VERSION } from '../src/polymarketPlan21.js';
+import {
+  evaluatePlan21,
+  plan21EntryCap,
+  plan21PaperOrderUsd,
+  plan21ReevalStatus,
+  plan21Window,
+  PLAN21_VERSION
+} from '../src/polymarketPlan21.js';
 import { PolymarketTradingService } from '../src/polymarketTrading.js';
 
 const end = Date.parse('2026-10-16T02:05:00Z');
@@ -12,6 +19,30 @@ test('only the three profitable 5m windows are active', () => {
   assert.equal(plan21Window(4.5), plan21Window(4));
   assert.equal(plan21Window(1.4), null);
   assert.equal(plan21Window(0.5), null);
+});
+
+test('caps entries at 30c and records the 100-window reeval without stopping', () => {
+  assert.equal(plan21EntryCap(0.4), 0.30);
+  assert.equal(plan21PaperOrderUsd(20), 5);
+  const books = { upBook: { bestBid: 0.28, bestAsk: 0.30 }, downBook: { bestBid: 0.68, bestAsk: 0.70 } };
+  const hit = evaluatePlan21({ ...books, endMs: end, nowMs: end - 4 * 60_000 });
+  assert.equal(hit.ok, true);
+  assert.equal(hit.ask, 0.30);
+  const over = evaluatePlan21({
+    upBook: { bestBid: 0.29, bestAsk: 0.31 },
+    downBook: { bestBid: 0.67, bestAsk: 0.69 },
+    endMs: end,
+    nowMs: end - 4 * 60_000,
+    maxEntryPrice: 0.40
+  });
+  assert.equal(over.reason, 'price_out_of_range');
+  const orders = Array.from({ length: 100 }, (_, index) => ({ targetTimeIso: `2026-10-16T02:${String(index).padStart(2, '0')}:00Z` }));
+  const due = plan21ReevalStatus(orders, 100);
+  assert.equal(due.due, true);
+  assert.equal(due.autoStop, false);
+  assert.equal(due.windows, 100);
+  assert.equal(plan21ReevalStatus(orders.slice(0, 99), 100).due, false);
+  assert.match(due.note, /不自动停止/);
 });
 
 test('buys the cheaper side inside the window and skips the losing 3-minute 20-35c cell', () => {

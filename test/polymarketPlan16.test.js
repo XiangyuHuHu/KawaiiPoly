@@ -6,8 +6,10 @@ import {
   ensembleYesProbability,
   evaluatePlan16Row,
   parsePlan16Question,
+  plan16PaperMinAsk,
   selectPlan16Buys,
-  temperatureInBucket
+  temperatureInBucket,
+  PLAN16_CONTROL_MIN_ASK
 } from '../src/polymarketPlan16.js';
 
 const NOW = Date.parse('2026-10-10T00:30:00Z');
@@ -98,6 +100,29 @@ test('buys yes only when the ensemble clears the fee-inclusive ask', () => {
   });
   assert.equal(tight.ok, false);
   assert.equal(tight.reason, 'edge_below_threshold');
+});
+
+test('hard-filters asks at or below 30c and still samples the mid band', () => {
+  assert.equal(PLAN16_CONTROL_MIN_ASK, 0.08);
+  assert.ok(plan16PaperMinAsk({ minAsk: 0.08 }) > 0.30);
+  assert.equal(plan16PaperMinAsk({ minAsk: 0.08, blockLowTail: false }), 0.08);
+  const tail = evaluatePlan16Row({
+    market: market(),
+    forecast: forecastFor('2026-10-10', members(19, 30, 0)),
+    yesBook: book(0.28, 0.30),
+    noBook: book(0.18, 0.22),
+    nowMs: NOW
+  });
+  assert.equal(tail.reason, 'low_tail');
+  const mid = evaluatePlan16Row({
+    market: market(),
+    forecast: forecastFor('2026-10-10', members(19, 30, 0)),
+    yesBook: book(0.32, 0.34),
+    noBook: book(0.64, 0.68),
+    nowMs: NOW
+  });
+  assert.equal(mid.ok, true, mid.reason);
+  assert.equal(mid.ask, 0.34);
 });
 
 test('skips unknown stations, late local afternoons and wide books', () => {

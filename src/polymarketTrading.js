@@ -70,10 +70,10 @@ import { observePlan14ExitControl, summarizePlan14ExitControl } from './plan14Ex
 import { createPlan14ProfitExperiment, observePlan14ProfitExperiment, resolvePlan14ProfitExperiment,
   releasePlan14ProfitExperiment, summarizePlan14ProfitExperiment } from './plan14ProfitExperiment.js';
 import { PLAN15_ID, PLAN15_VERSION } from './polymarketPlan15.js';
-import { PLAN16_ID, PLAN16_VERSION } from './polymarketPlan16.js';
+import { PLAN16_ID, PLAN16_LOW_TAIL_MAX, PLAN16_MIDBAND_VERSION, PLAN16_VERSION } from './polymarketPlan16.js';
 import { PLAN17_ID, PLAN17_VERSION } from './polymarketPlan17.js';
 import { PLAN18_ID, PLAN19_ID, DIVINATION_PLANS, DIVINATION_PLAN_IDS } from './polymarketPlan18.js';
-import { PLAN21_ID, PLAN21_VERSION } from './polymarketPlan21.js';
+import { PLAN21_ID, PLAN21_VERSION, plan21EntryCap, plan21PaperOrderUsd } from './polymarketPlan21.js';
 import { PLAN22_ID, PLAN22_VERSION, plan22ControlPnl } from './polymarketPlan22.js';
 import {
   INVERSE_RESEARCH_ID,
@@ -4851,6 +4851,11 @@ export class PolymarketTradingService {
     const ask = Number(input.ask);
     const usd = round2(Number(input.usd));
     if (!(ask > 0 && ask < 1) || !(usd > 0)) throw new Error('Plan16 报价或金额无效。');
+    if (this.config.plan16BlockLowTail !== false) {
+      const tail = Number(this.config.plan16LowTailMax);
+      const maxTail = Number.isFinite(tail) ? tail : PLAN16_LOW_TAIL_MAX;
+      if (ask <= maxTail + 1e-9) throw new Error('Plan16 不买 0–30¢ 尾部。');
+    }
     const bucket = this.getBucket(id);
     if (bucket.portfolio.cash + 0.005 < usd) throw new Error('Plan16 现金不足。');
     const slug = String(input.marketSlug || '');
@@ -4888,7 +4893,8 @@ export class PolymarketTradingService {
         bucket: input.bucket
       },
       targetTimeIso: input.endDate || null,
-      strategyVersion: PLAN16_VERSION,
+      strategyVersion: this.config.plan16BlockLowTail === false ? PLAN16_VERSION : PLAN16_MIDBAND_VERSION,
+      plan16SampleOnly: this.config.plan16BlockLowTail !== false,
       createdAtIso: new Date().toISOString(),
       settlementStatus: 'open',
       status: 'paper-filled',
@@ -5130,8 +5136,11 @@ export class PolymarketTradingService {
     if (this.config.plan21Enabled === false) throw new Error('Plan21 已禁用。');
     this.ensurePortfolioReady(id);
     const ask = Number(input.ask);
-    const usd = round2(Number(input.usd));
-    if (!(ask > 0 && ask < 1) || !(usd > 0)) throw new Error('Plan21 报价或金额无效。');
+    const cap = plan21EntryCap(this.config.plan21MaxEntryPrice);
+    if (!(ask > 0 && ask < 1)) throw new Error('Plan21 报价或金额无效。');
+    if (ask > cap + 1e-9) throw new Error('Plan21 入场价高于 30¢。');
+    const usd = plan21PaperOrderUsd(input.usd);
+    if (!(usd > 0)) throw new Error('Plan21 报价或金额无效。');
     const bucket = this.getBucket(id);
     if (bucket.portfolio.cash + 0.005 < usd) throw new Error('Plan21 现金不足。');
     const slug = String(input.marketSlug || '');
@@ -5156,7 +5165,8 @@ export class PolymarketTradingService {
         windowMinutes: input.windowMinutes,
         minutesLeft: input.minutesLeft,
         low: input.low,
-        high: input.high
+        high: input.high,
+        maxEntryPrice: cap
       },
       slotIso: input.startIso || null,
       targetTimeIso: input.endDate || null,
@@ -5221,13 +5231,16 @@ export class PolymarketTradingService {
     });
   }
 
-  async notePlan21Scan({ reason = '', bought = 0 } = {}) {
+  async notePlan21Scan({ reason = '', bought = 0, reeval = null } = {}) {
     const bucket = this.getBucket(PLAN21_ID);
+    const plan21Reeval = reeval || bucket.plan21Reeval || bucket.auto?.plan21Reeval || null;
+    bucket.plan21Reeval = plan21Reeval;
     bucket.auto = {
       ...bucket.auto,
       lastAction: bought > 0 ? 'bought' : 'skip',
       lastReason: reason,
-      lastRunAtIso: new Date().toISOString()
+      lastRunAtIso: new Date().toISOString(),
+      plan21Reeval
     };
     await this.persist(PLAN21_ID);
   }

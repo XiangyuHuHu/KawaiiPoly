@@ -35,6 +35,9 @@ export const PLAN22_DEFAULTS = Object.freeze({
   maxSpread: 0.04,
   minSpotDistanceBps: 8,
   maxSpotAgeMs: 15_000,
+  // A quote this far ahead of the decision clock is skew (or a clock sampled
+  // before the quote was stamped), not a future print. Further ahead is rejected.
+  maxSpotClockSkewMs: 5_000,
   minEdgeAfterFee: 0.02,
   takerFeeRate: 0.07,
   orderUsd: 5,
@@ -58,6 +61,44 @@ function round4(value) {
 
 function round2(value) {
   return Math.round(Number(value) * 100) / 100;
+}
+
+/**
+ * Age of a spot quote against the decision clock.
+ * Returns 0 when the quote is slightly ahead (local clock skew, or the scan
+ * captured `now` before Binance was stamped). Returns null when the timestamp
+ * is missing or implausibly far in the future.
+ */
+export function plan22SpotAgeMs(quoteMs, nowMs, maxClockSkewMs = PLAN22_DEFAULTS.maxSpotClockSkewMs) {
+  const quote = Number(quoteMs);
+  const now = Number(nowMs);
+  const skew = Number(maxClockSkewMs);
+  const allowance = Number.isFinite(skew) && skew >= 0 ? skew : PLAN22_DEFAULTS.maxSpotClockSkewMs;
+  if (!Number.isFinite(quote) || quote <= 0 || !Number.isFinite(now)) return null;
+  const age = now - quote;
+  if (age >= 0) return age;
+  if (-age <= allowance) return 0;
+  return null;
+}
+
+/**
+ * Pick a quote time the entry gate can age. A stamp that is missing or too far
+ * ahead of the receive clock is replaced by the local receive time, which is
+ * the moment this process actually saw the spot.
+ */
+export function plan22ResolveSpotQuoteMs({
+  parsedQuoteMs = null,
+  receivedAtMs = null,
+  nowMs = null,
+  maxClockSkewMs = PLAN22_DEFAULTS.maxSpotClockSkewMs
+} = {}) {
+  const received = Number(receivedAtMs);
+  const now = Number(nowMs);
+  const anchor = Number.isFinite(now) ? now : received;
+  const parsed = Number(parsedQuoteMs);
+  if (plan22SpotAgeMs(parsed, anchor, maxClockSkewMs) != null) return parsed;
+  if (Number.isFinite(received) && received > 0) return received;
+  return null;
 }
 
 export function plan22InputsFromSignal(signal, spotQuoteMs = Date.now()) {
@@ -226,6 +267,7 @@ export function evaluatePlan22({
   maxSpread = PLAN22_DEFAULTS.maxSpread,
   minSpotDistanceBps = PLAN22_DEFAULTS.minSpotDistanceBps,
   maxSpotAgeMs = PLAN22_DEFAULTS.maxSpotAgeMs,
+  maxSpotClockSkewMs = PLAN22_DEFAULTS.maxSpotClockSkewMs,
   minEdgeAfterFee = PLAN22_DEFAULTS.minEdgeAfterFee,
   feeRate = PLAN22_DEFAULTS.takerFeeRate
 } = {}) {
@@ -241,8 +283,8 @@ export function evaluatePlan22({
     return skip('outside_phase', { phase, elapsedPct });
   }
   const quoteMs = Number(spotQuoteMs);
-  if (!Number.isFinite(quoteMs) || quoteMs <= 0 || quoteMs > now) return skip('spot_age');
-  if (now - quoteMs > maxSpotAgeMs) return skip('spot_age', { spotAgeMs: now - quoteMs });
+  const spotAgeMs = plan22SpotAgeMs(quoteMs, now, maxSpotClockSkewMs);
+  if (spotAgeMs == null || spotAgeMs > maxSpotAgeMs) return skip('spot_age', { spotAgeMs });
   const spotPx = Number(spot);
   const openPx = Number(slotOpen);
   if (!(spotPx > 0) || !(openPx > 0)) return skip('missing_spot');
@@ -297,7 +339,7 @@ export function evaluatePlan22({
     feePerShare: round4(feePerShare),
     edgeAfterFee: round4(edgeAfterFee),
     distanceBps: round4(distanceBps),
-    spotAgeMs: now - quoteMs,
+    spotAgeMs,
     spread: round4(spread),
     feeRate,
     control: controlBook ? {

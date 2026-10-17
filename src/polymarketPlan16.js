@@ -4,6 +4,11 @@ import { stationFromDescription } from './plan16Stations.js';
 
 export const PLAN16_ID = 'plan16';
 export const PLAN16_VERSION = 'plan16_ensemble_temp_v1';
+/** Mid-band paper samples after the 2026-10-18 review. The 0–30¢ tail stays closed. */
+export const PLAN16_MIDBAND_VERSION = 'plan16_ensemble_temp_midband_v2';
+export const PLAN16_LOW_TAIL_MAX = 0.30;
+/** Historical control floor. PR #18 plan16b contrasts against this, not against the tail block. */
+export const PLAN16_CONTROL_MIN_ASK = 0.08;
 
 const MONTHS = {
   january: 1, february: 2, march: 3, april: 4, may: 5, june: 6,
@@ -11,7 +16,7 @@ const MONTHS = {
 };
 
 export const PLAN16_DEFAULTS = Object.freeze({
-  minAsk: 0.08,
+  minAsk: PLAN16_CONTROL_MIN_ASK,
   maxAsk: 0.80,
   maxSpread: 0.06,
   minEdge: 0.08,
@@ -19,8 +24,29 @@ export const PLAN16_DEFAULTS = Object.freeze({
   maxDays: 2,
   highCutoffHour: 15,
   lowCutoffHour: 8,
-  feeRate: 0.07
+  feeRate: 0.07,
+  // Asks at or below this are the cheap tail. Mid-band samples sit strictly above it.
+  blockLowTail: true,
+  lowTailMax: PLAN16_LOW_TAIL_MAX
 });
+
+/**
+ * Paper floor used by the scanner. Does not lower the historical 0.08 control
+ * constant. When the tail block is on, the returned floor is just above 0.30
+ * so the existing `ask < minAsk` check rejects 0–0.30.
+ */
+export function plan16PaperMinAsk({
+  minAsk = PLAN16_CONTROL_MIN_ASK,
+  blockLowTail = true,
+  lowTailMax = PLAN16_LOW_TAIL_MAX
+} = {}) {
+  const floor = Number(minAsk);
+  const base = Number.isFinite(floor) && floor > 0 ? floor : PLAN16_CONTROL_MIN_ASK;
+  if (blockLowTail === false) return base;
+  const tail = Number(lowTailMax);
+  const cap = Number.isFinite(tail) ? tail : PLAN16_LOW_TAIL_MAX;
+  return Math.max(base, Math.round((cap + 0.0001) * 1e6) / 1e6);
+}
 
 function finite(value) {
   const number = Number(value);
@@ -97,11 +123,15 @@ function netCost(ask, feeRate) {
   return netShare > 0 ? ask / netShare : null;
 }
 
-function quoteOk(book, { minAsk, maxAsk, maxSpread }) {
+function quoteOk(book, { minAsk, maxAsk, maxSpread, blockLowTail = true, lowTailMax = PLAN16_LOW_TAIL_MAX }) {
   const bid = finite(book?.bestBid ?? book?.bid);
   const ask = finite(book?.bestAsk ?? book?.ask);
   if (bid == null || ask == null || !(ask > bid)) return null;
   if (ask - bid > maxSpread + 1e-9) return { reject: 'wide_spread', bid, ask };
+  const tail = Number(lowTailMax);
+  if (blockLowTail !== false && Number.isFinite(tail) && ask <= tail + 1e-9) {
+    return { reject: 'low_tail', bid, ask };
+  }
   if (ask + 1e-9 < minAsk || ask - 1e-9 > maxAsk) return { reject: 'price_out_of_range', bid, ask };
   return { bid, ask, spread: ask - bid };
 }
@@ -148,7 +178,7 @@ export function evaluatePlan16Row({
   if (yesIndex < 0 || noIndex < 0 || !tokenIds[yesIndex] || !tokenIds[noIndex]) {
     return { ok: false, reason: 'missing_outcomes' };
   }
-  const sides = [
+  const evaluated = [
     { outcome: outcomes[yesIndex], tokenId: tokenIds[yesIndex], p: pYes, book: yesBook },
     { outcome: outcomes[noIndex], tokenId: tokenIds[noIndex], p: 1 - pYes, book: noBook }
   ].map((side) => {
@@ -159,9 +189,14 @@ export function evaluatePlan16Row({
     const cost = netCost(quote.ask, cfg.feeRate);
     const edge = Number.isFinite(cost) ? side.p - cost : -1;
     return { ...side, ok: edge + 1e-9 >= cfg.minEdge, reason: edge + 1e-9 >= cfg.minEdge ? null : 'edge_below_threshold', ...quote, cost: round4(cost), edge: round4(edge), p: round4(side.p) };
-  }).filter((side) => side.ok).sort((a, b) => b.edge - a.edge);
+  });
+  const sides = evaluated.filter((side) => side.ok).sort((a, b) => b.edge - a.edge);
   const selected = sides[0];
-  if (!selected) return { ok: false, reason: 'edge_below_threshold', pYes: round4(pYes) };
+  if (!selected) {
+    const failed = evaluated.filter((side) => !side.ok);
+    const onlyLowTail = failed.length > 0 && failed.every((side) => side.reason === 'low_tail');
+    return { ok: false, reason: onlyLowTail ? 'low_tail' : 'edge_below_threshold', pYes: round4(pYes) };
+  }
   return {
     ok: true,
     groupKey: `${station.icao}|${parsed.date}|${parsed.kind}`,

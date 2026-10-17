@@ -2,7 +2,61 @@ import { parseJsonArray } from './polymarketClient.js';
 import { isShortWindowCryptoUpDown } from './polymarketCatalog.js';
 
 export const PLAN15_ID = 'plan15';
-export const PLAN15_VERSION = 'plan15_event_midband_v2';
+export const PLAN15_VERSION = 'plan15_esports_macro_055_070_v3';
+
+/** 2026-10-18 review: esports and macro (catalog id `finance`) only. */
+export const PLAN15_TIGHT_CATEGORIES = Object.freeze(['esports', 'finance']);
+export const PLAN15_TIGHT_MIN_PRICE = 0.55;
+export const PLAN15_TIGHT_MAX_PRICE = 0.70;
+export const PLAN15_PAUSED_CATEGORIES = Object.freeze(['weather']);
+
+export function normalizePlan15Category(categoryId) {
+  const id = String(categoryId || '').trim().toLowerCase();
+  return id === 'macro' ? 'finance' : id;
+}
+
+export function plan15CategoryPaused(categoryId, paused = PLAN15_PAUSED_CATEGORIES) {
+  const id = normalizePlan15Category(categoryId);
+  const list = Array.isArray(paused) ? paused : PLAN15_PAUSED_CATEGORIES;
+  return list.map((item) => normalizePlan15Category(item)).includes(id);
+}
+
+/**
+ * Other categories keep the caller band (default 0.40–0.70).
+ * Esports and macro are tightened to about 0.55–0.70 and cannot be widened past that.
+ */
+export function plan15CategoryBand(categoryId, {
+  minPrice = 0.40,
+  maxPrice = 0.70,
+  tightMinPrice = PLAN15_TIGHT_MIN_PRICE,
+  tightMaxPrice = PLAN15_TIGHT_MAX_PRICE,
+  tightCategories = PLAN15_TIGHT_CATEGORIES
+} = {}) {
+  const id = normalizePlan15Category(categoryId);
+  const tightIds = (Array.isArray(tightCategories) ? tightCategories : PLAN15_TIGHT_CATEGORIES)
+    .map((item) => normalizePlan15Category(item));
+  const floor = Number(minPrice);
+  const ceiling = Number(maxPrice);
+  const min = Number.isFinite(floor) ? floor : 0.40;
+  const max = Number.isFinite(ceiling) ? ceiling : 0.70;
+  if (!tightIds.includes(id)) return { minPrice: min, maxPrice: max };
+  const tightMin = Number(tightMinPrice);
+  const tightMax = Number(tightMaxPrice);
+  const nextMin = Math.max(
+    min,
+    PLAN15_TIGHT_MIN_PRICE,
+    Number.isFinite(tightMin) ? tightMin : PLAN15_TIGHT_MIN_PRICE
+  );
+  const nextMax = Math.min(
+    max,
+    PLAN15_TIGHT_MAX_PRICE,
+    Number.isFinite(tightMax) ? tightMax : PLAN15_TIGHT_MAX_PRICE
+  );
+  return {
+    minPrice: Math.min(nextMin, PLAN15_TIGHT_MAX_PRICE),
+    maxPrice: Math.max(Math.min(nextMin, PLAN15_TIGHT_MAX_PRICE), nextMax)
+  };
+}
 
 function finite(value) {
   const number = Number(value);
@@ -24,6 +78,10 @@ export function evaluatePlan15Candidate({
   now = Date.now(),
   minPrice = 0.40,
   maxPrice = 0.70,
+  tightMinPrice = PLAN15_TIGHT_MIN_PRICE,
+  tightMaxPrice = PLAN15_TIGHT_MAX_PRICE,
+  tightCategories = PLAN15_TIGHT_CATEGORIES,
+  pausedCategories = PLAN15_PAUSED_CATEGORIES,
   maxSpread = 0.05,
   maxDays = 2,
   minVolume24hr = 1000,
@@ -32,6 +90,18 @@ export function evaluatePlan15Candidate({
   if (!market || typeof market !== 'object') {
     return { ok: false, reason: 'missing_market' };
   }
+  if (plan15CategoryPaused(categoryId, pausedCategories)) {
+    return { ok: false, reason: 'category_paused' };
+  }
+  const band = plan15CategoryBand(categoryId, {
+    minPrice,
+    maxPrice,
+    tightMinPrice,
+    tightMaxPrice,
+    tightCategories
+  });
+  minPrice = band.minPrice;
+  maxPrice = band.maxPrice;
   if (categoryId === 'crypto' && isShortWindowCryptoUpDown(event || market)) {
     return { ok: false, reason: 'short_window_crypto' };
   }

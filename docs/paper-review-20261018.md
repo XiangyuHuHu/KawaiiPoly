@@ -1,0 +1,53 @@
+# 2026-10-18 纸面复盘
+
+只改纸面。`POLYMARKET_LIVE_TRADING_ENABLED` 和 `ENABLE_LIVE_TRADING` 都保持 `false`。实盘调度不接收这些计划。
+
+PR #18 的 `plan14b` / `plan16b` / `plan2_6b` / `plan3_6b` 不在这条分支上。Plan16 的历史 `minAsk` 仍是 `0.08`，给那条对照留着。真正挡住 0–30¢ 的是单独的纸面开关 `POLYMARKET_PLAN16_BLOCK_LOW_TAIL`（默认开）。把它设成 `false` 会重新打开尾巴，不是这次批准的配置。
+
+## 本地打开（实盘保持关）
+
+```bash
+POLYMARKET_LIVE_TRADING_ENABLED=false
+ENABLE_LIVE_TRADING=false
+
+POLYMARKET_PLAN15_ENABLED=true
+POLYMARKET_PLAN15_NEW_ENTRIES_ENABLED=true
+POLYMARKET_PLAN15_TIGHT_CATEGORIES=esports,finance
+POLYMARKET_PLAN15_TIGHT_MIN_PRICE=0.55
+POLYMARKET_PLAN15_TIGHT_MAX_PRICE=0.70
+POLYMARKET_PLAN15_PAUSED_CATEGORIES=weather
+
+POLYMARKET_PLAN16_ENABLED=true
+POLYMARKET_PLAN16_NEW_ENTRIES_ENABLED=true
+POLYMARKET_PLAN16_BLOCK_LOW_TAIL=true
+
+POLYMARKET_PLAN17_ENABLED=false
+POLYMARKET_PLAN18_ENABLED=true
+POLYMARKET_PLAN18_NEW_ENTRIES_ENABLED=true
+POLYMARKET_PLAN19_ENABLED=false
+POLYMARKET_PLAN20_ENABLED=false
+
+POLYMARKET_PLAN21_ENABLED=true
+POLYMARKET_PLAN21_NEW_ENTRIES_ENABLED=true
+POLYMARKET_PLAN21_ORDER_USD=5
+POLYMARKET_PLAN21_MAX_ENTRY_PRICE=0.30
+POLYMARKET_PLAN21_REEVAL_WINDOWS=100
+POLYMARKET_PLAN21_SYMBOLS=BTC,ETH
+
+POLYMARKET_PLAN22_ENABLED=true
+POLYMARKET_PLAN22_MAX_SPOT_CLOCK_SKEW_MS=5000
+```
+
+## 各计划
+
+| 计划 | 纸面 |
+| --- | --- |
+| Plan14 | 旧规则不扩。新仓默认关，币种锁在 BTC/ETH/SOL/XRP，周期只有 5m。 |
+| Plan15 | 保留。电竞和宏观（`finance`）卖一约 0.55–0.70。天气不再开新仓，已有仓照常结算。 |
+| Plan16 | 不扩大金额、持仓和每轮笔数。卖一 ≤0.30 拒绝。以上的中价带只做新样本。 |
+| Plan17 | 默认关闭，不在活跃纸面列表里。 |
+| Plan18 | 留作随机对照。 |
+| Plan19 | 退出活跃纸面，默认关闭。 |
+| Plan20 | 默认关闭。空的挖掘规则不动，`.20-.35` / UTC `12-16` 不放宽。 |
+| Plan21 | BTC/ETH 5m，单笔最多 $5，卖一 ≤0.30。约 100 个窗口后在扫描原因里提示复评，不自动停。 |
+| Plan22 | 默认仍关。打开后现货时间戳的时钟偏差不再把新鲜报价打成 `spot_age`。 |

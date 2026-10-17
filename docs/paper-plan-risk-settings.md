@@ -15,8 +15,13 @@ orders release exposure. Zero disables new orders through that cap; invalid
 values or fractions outside 0–1 use the safe default. Existing positions are
 not liquidated when caps change. These settings do not enable live trading.
 
+The 2026-10-18 paper review knobs are listed in `docs/paper-review-20261018.md`.
+Keep `POLYMARKET_LIVE_TRADING_ENABLED=false` and `ENABLE_LIVE_TRADING=false`.
+
 `GET /api/polymarket/paper-plans` without a plan selector returns a `plans`
-object keyed by active plan IDs (14–19), omitting explicitly disabled plans.
+object keyed by the active paper plan IDs. As of the 2026-10-18 review that
+list is plan14, plan15, plan16, plan18, plan20, plan21, and plan22. Plan17 and
+plan19 are retired from that list. Explicitly disabled plans are omitted.
 Each plan includes `newEntriesEnabled` and `liveTradingEnabled`. These plans
 are paper-only, so their live flag is false. Requests with `plan` or `planId`
 retain the individual plan view and include both flags at the top level.
