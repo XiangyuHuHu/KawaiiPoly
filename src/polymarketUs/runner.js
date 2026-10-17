@@ -231,6 +231,7 @@ export async function runPolymarketUsCycle(options = {}) {
         market_p: decision.marketP ?? null,
         p_used: decision.pUsed ?? decision.model_prob ?? null,
         entry: decision.limitPrice,
+        order_kind: decision.order_kind || 'normal',
         order_payload: decision.order,
         window_id: windowKey(signal),
         resolution_source: decision.sector === 'btc_misprice' || decision.sector === 'momentum'
@@ -293,6 +294,7 @@ export async function runPolymarketUsCycle(options = {}) {
       sector: row.sector,
       side: row.side,
       sizeUsd: row.sizeUsd ?? null,
+      order_kind: row.order_kind || null,
       fill_status: row.fill_status || null,
       order: row.order || null
     }))

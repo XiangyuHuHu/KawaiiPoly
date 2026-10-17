@@ -48,6 +48,15 @@ export const US_EDGE_STANDARD = 0.03;
 /** BTC 15m / 1h 错价最低 edge（4pp）。扫描 rules.edge.btcMisprice 与下单重检共用这一常量。 */
 export const US_EDGE_BTC_MISPRICE = 0.04;
 /**
+ * 周末试探单。BTC 错价和 Live 盘中的 edge 落在 [2pp, 4pp) 时下 $1，不把这一轮扫空。
+ * 4pp 起仍是正常仓。低于 2pp 继续跳过。冷板块正式门槛仍是 4pp×1.5，4pp–6pp 不是试探带。
+ */
+export const US_EXPLORATORY_SIZE_USD = 1;
+export const US_EXPLORATORY_MIN_EDGE = 0.02;
+export const US_EXPLORATORY_MAX_EDGE = US_EDGE_BTC_MISPRICE;
+/** 动量距离试探带 [2, 4) bps。4 bps 起仍是正常仓。低于 2 bps 继续跳过。 */
+export const US_EXPLORATORY_MIN_DISTANCE_BPS = 2;
+/**
  * BTC 错价把模型概率向该方向的盘口中间价收缩后再要求 4pp。
  * p_used = 0.7 * model + 0.3 * market_mid。
  * 0.5/0.5 配合 0.35–0.65 之后，扫描几乎都停在 price-band，没有新成交。

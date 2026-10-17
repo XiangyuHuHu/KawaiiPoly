@@ -6,6 +6,7 @@ import {
   US_BTC_MISPRICE_MIN_PRICE,
   US_BTC_MISPRICE_MODEL_WEIGHT,
   US_EDGE_BTC_MISPRICE,
+  US_EXPLORATORY_SIZE_USD,
   US_EDGE_LIVE_INPLAY,
   US_EDGE_STANDARD,
   US_LIVE_ENDGAME_MAX_PRICE,
@@ -43,7 +44,7 @@ import {
 } from './shape.js';
 import { blendModelToMarket, marketProbability, sectorBrakeReason } from './calibration.js';
 import { quoteForSide } from './gateway.js';
-import { cleanerEdgeFloor, US_RULES } from './rules.js';
+import { cleanerEdgeFloor, exploratoryDistanceKind, exploratoryOrderKind, US_RULES } from './rules.js';
 import { describeSession } from './time.js';
 import { sizeUsLimitBuy } from './trading.js';
 
@@ -346,7 +347,8 @@ export function evaluateUsSignal(signal, context = {}) {
   const pUsed = blended.pUsed == null ? null : Math.round(blended.pUsed * 1e4) / 1e4;
   const roundedMarket = blended.marketP == null ? null : Math.round(blended.marketP * 1e4) / 1e4;
   const edge = pUsed != null ? Math.round((pUsed - executionPrice) * 1e4) / 1e4 : readNumber(signal?.edge);
-  const sizing = resolveUsSizeUsd(sector, context.stats, signal?.size_usd ?? signal?.sizeUsd);
+  const requestedSize = signal?.order_kind === 'exploratory' ? undefined : (signal?.size_usd ?? signal?.sizeUsd);
+  const sizing = resolveUsSizeUsd(sector, context.stats, requestedSize);
 
   let minEdge = null;
   let minPrice = US_PRICE_MIN;
@@ -376,22 +378,40 @@ export function evaluateUsSignal(signal, context = {}) {
   if (executionPrice + 1e-9 < minPrice || executionPrice - 1e-9 > maxPrice) {
     return decision('skip', 'price_band', `价格 ${executionPrice} 不在 ${minPrice}–${maxPrice}。`, { ...base, status: 'skipped' });
   }
+  let orderKind = 'normal';
+  let exploratoryReason = null;
   if (sector === 'momentum') {
     // SCAN_SPEC v3.2：动量距离 4 bps；冷板块退回 Plan2 原阈值 8 bps。手写 SIGNAL 也重检。
     const distance = momentumDistanceBps(signal);
     const needed = sizing.cold
       ? US_RULES.edge.momentumOriginalDistanceBps
       : US_RULES.edge.momentumDistanceBps;
-    if (distance == null || distance + 1e-9 < needed) {
+    orderKind = exploratoryDistanceKind({ distance, needed, eligible: true });
+    if (orderKind === 'skip') {
       return decision('skip', 'momentum_distance', `BTC 动量距离 ${distance ?? '缺失'} bps 低于 ${needed}。`, {
         ...base,
         status: 'skipped'
       });
     }
+    if (orderKind === 'exploratory') {
+      exploratoryReason = `试探单 $1。动量距离 ${distance} bps 在 2–4 的软区间。`;
+    }
   }
-  if (minEdge != null && !(edge >= minEdge - 1e-9)) {
-    return decision('skip', 'edge', `edge ${edge} 低于门槛 ${minEdge}。`, { ...base, status: 'skipped' });
+  if (minEdge != null) {
+    const edgeKind = exploratoryOrderKind({
+      edge,
+      fullMinEdge: minEdge,
+      eligible: sector === 'btc_misprice' || sector === 'live'
+    });
+    if (edgeKind === 'skip') {
+      return decision('skip', 'edge', `edge ${edge} 低于门槛 ${minEdge}。`, { ...base, status: 'skipped' });
+    }
+    if (edgeKind === 'exploratory') {
+      orderKind = 'exploratory';
+      exploratoryReason = `试探单 $1。edge ${edge} 在 2–4pp 软区间，未到正式门槛 ${minEdge}。`;
+    }
   }
+  const sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.sizeUsd;
 
   const spread = readSpread(signal, quote);
   if (spread == null) {
@@ -401,8 +421,8 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'spread', `价差 ${spread} 大于 ${US_MAX_SPREAD}。`, { ...base, status: 'skipped' });
   }
   const depthUsd = readDepthUsd(signal, quote, executionPrice);
-  if (depthUsd == null || depthUsd + 1e-9 < sizing.sizeUsd) {
-    return decision('skip', 'depth', `深度 ${depthUsd} 不够 $${sizing.sizeUsd}。`, { ...base, status: 'skipped' });
+  if (depthUsd == null || depthUsd <= 0 || depthUsd + 1e-9 < sizeUsd) {
+    return decision('skip', 'depth', `深度 ${depthUsd} 不够 $${sizeUsd}。`, { ...base, status: 'skipped' });
   }
 
   const schedule = evaluateUsSchedule(now, signal, context.scheduleWindowMinutes);
@@ -433,10 +453,10 @@ export function evaluateUsSignal(signal, context = {}) {
   const buyingPower = context.buyingPower;
   const reserve = context.cashReserveUsd ?? 15;
   if (buyingPower != null) {
-    if (buyingPower + 1e-9 < sizing.sizeUsd) {
-      return decision('skip', 'insufficient_cash', `可用资金 ${buyingPower} 不够 $${sizing.sizeUsd}。`, { ...base, status: 'skipped' });
+    if (buyingPower + 1e-9 < sizeUsd) {
+      return decision('skip', 'insufficient_cash', `可用资金 ${buyingPower} 不够 $${sizeUsd}。`, { ...base, status: 'skipped' });
     }
-    if (buyingPower - sizing.sizeUsd + 1e-9 < reserve) {
+    if (buyingPower - sizeUsd + 1e-9 < reserve) {
       return decision('skip', 'cash_reserve', `下单后现金将低于 $${reserve} 保留额。`, { ...base, status: 'skipped' });
     }
   }
@@ -464,13 +484,14 @@ export function evaluateUsSignal(signal, context = {}) {
     slug: base.slug,
     side,
     limitPrice: executionPrice,
-    sizeUsd: sizing.sizeUsd
+    sizeUsd
   });
-  return decision('place', 'pass', '通过 v3.2 门控。', {
+  return decision('place', orderKind === 'exploratory' ? 'exploratory' : 'pass', exploratoryReason || '通过 v3.2 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,
-    sizeUsd: sizing.sizeUsd,
+    order_kind: orderKind,
+    sizeUsd,
     tier: sizing.tier,
     cold: sizing.cold,
     edge,

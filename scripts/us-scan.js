@@ -36,7 +36,9 @@ if (command === 'settle') {
     refreshQuote: (model) => refreshUsQuote(gateway, model),
     loadModels: async () => models.rows
   });
-  const ids = result.signals.map((signal) => signal.id).join(',');
+  const ids = result.signals.map((signal) => (
+    signal.order_kind === 'exploratory' ? `${signal.id}:exploratory` : signal.id
+  )).join(',');
   const session = result.session?.label ? ` session=${result.session.label}` : '';
   for (const event of result.brakeEvents || []) {
     if (event.event === 'pause') {

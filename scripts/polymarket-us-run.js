@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { runPolymarketUsCycle } from '../src/polymarketUs/index.js';
 
 const report = await runPolymarketUsCycle();
-const lines = report.results.map((row) => `${row.action}\t${row.code}\t${row.signal_id || ''}\t${row.reason}`);
+const lines = report.results.map((row) => `${row.action}\t${row.code}\t${row.order_kind || '-'}\t${row.signal_id || ''}\t${row.reason}`);
 const brakes = (report.brakeEvents || [])
   .filter((event) => event.event === 'pause')
   .map((event) => `sector-brake\t${event.sector}\tuntil=${event.pausedUntil}\twins=${event.wins}\tpnl=${event.pnlUsd}`);

@@ -141,6 +141,7 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
   assert.equal(signal.signal.size_usd, 2);
+  assert.equal(signal.signal.order_kind, 'normal');
   assert.equal(signal.signal.edge, 0.1035);
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
@@ -188,10 +189,19 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
     ask: 0.76,
     bid: 0.75
   })).reason, 'price-band');
-  assert.equal(evaluateUsSignal(passing({
+  const softBtc = evaluateUsSignal(passing({
     modelProb: 0.56,
     ask: 0.52,
     bid: 0.51
+  }));
+  assert.equal(softBtc.ok, true);
+  assert.equal(softBtc.signal.order_kind, 'exploratory');
+  assert.equal(softBtc.signal.size_usd, 1);
+  assert.equal(softBtc.signal.edge, 0.0265);
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.52,
+    ask: 0.50,
+    bid: 0.49
   })).reason, 'edge');
   assert.equal(evaluateUsSignal(passing({
     confidence: 0,
@@ -232,7 +242,11 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   const momentum = evaluateUsSignal(passing({ sector: 'momentum', ask: 0.80, modelProb: 0.84 }));
   assert.equal(momentum.ok, true);
   assert.equal(momentum.signal.size_usd, 2);
-  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', distanceBps: 3 })).reason, 'momentum-distance');
+  const softMomentum = evaluateUsSignal(passing({ sector: 'momentum', distanceBps: 3 }));
+  assert.equal(softMomentum.ok, true);
+  assert.equal(softMomentum.signal.order_kind, 'exploratory');
+  assert.equal(softMomentum.signal.size_usd, 1);
+  assert.equal(evaluateUsSignal(passing({ sector: 'momentum', distanceBps: 1 })).reason, 'momentum-distance');
   assert.equal(evaluateUsSignal(passing({ sector: 'momentum', sameWay: false, distanceBps: 9 })).reason, 'momentum-same-way');
   assert.equal(evaluateUsSignal(passing({ sector: 'momentum', ask: 0.90, modelProb: 0.95 })).reason, 'momentum-price-cap');
 
@@ -539,8 +553,28 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       mispriceStats: emptyStats(),
       momentumStats: emptyStats()
     });
-    assert.equal(coinFlip.signals.length, 0);
+    assert.equal(coinFlip.signals.length, 1);
+    assert.equal(coinFlip.signals[0].order_kind, 'exploratory');
+    assert.equal(coinFlip.signals[0].size_usd, 1);
+    assert.equal(coinFlip.signals[0].side, 'Up');
+    assert.equal(coinFlip.signals[0].edge, 0.0335);
     assert.equal(coinFlip.skipped.includes('edge'), true);
+    const tooFlat = btcCandidatesFromContext({
+      ...context,
+      signal: {
+        confidence: 0.54,
+        probabilities: { up: 0.51 },
+        indicators: { bodyPct: 0 }
+      },
+      bbo: { ...context.bbo, bestAsk: 0.50, longAsk: 0.50, bestBid: 0.49, shortAsk: 0.51 },
+      book: { asks: [{ price: 0.50, size: 8000 }], bids: [{ price: 0.49, size: 8000 }] },
+      timeframe: '15m',
+      now: NOW,
+      mispriceStats: emptyStats(),
+      momentumStats: emptyStats()
+    });
+    assert.equal(tooFlat.signals.length, 0);
+    assert.equal(tooFlat.skipped.includes('edge'), true);
     assert.equal(modest.skipped.includes('confidence'), false);
 
     const noModel = btcCandidatesFromContext({
@@ -797,6 +831,59 @@ test('nightly digest is one Chinese line and ignores paper or Gamma rows', async
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('a soft BTC window keeps one exploratory side, and a full momentum signal wins over it', () => {
+  const context = {
+    market: {
+      slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
+      question: 'BTC Up or Down 15m',
+      description: 'settle to Up if the Bitcoin price is greater than or equal. Outcome sourced from CF Benchmarks BRTI. The official value is the simple average of these prices, rounded to the nearest 2 decimal places.',
+      assetPriceTerms: {
+        indexSymbol: 'BRTI',
+        marketType: 'ASSET_PRICE_MARKET_TYPE_UP_DOWN',
+        priceDecimals: 2
+      }
+    },
+    bbo: {
+      bestBid: 0.51,
+      bestAsk: 0.52,
+      longAsk: 0.52,
+      shortAsk: 0.49,
+      askShares: 8000,
+      bidShares: 8000,
+      sampledAt: NOW.toISOString()
+    },
+    book: { asks: [{ price: 0.52, size: 8000 }], bids: [{ price: 0.51, size: 8000 }] },
+    window: {
+      start: new Date('2026-10-14T15:30:00.000Z'),
+      end: new Date('2026-10-14T15:45:00.000Z')
+    }
+  };
+  const soft = btcCandidatesFromContext({
+    ...context,
+    signal: { confidence: 0.6, probabilities: { up: 0.56 }, indicators: { bodyPct: 0.0003 } },
+    timeframe: '15m',
+    now: NOW,
+    mispriceStats: emptyStats(),
+    momentumStats: emptyStats()
+  });
+  assert.equal(soft.signals.length, 1);
+  assert.equal(soft.signals[0].sector, 'btc_misprice');
+  assert.equal(soft.signals[0].order_kind, 'exploratory');
+  assert.equal(soft.signals[0].size_usd, 1);
+  const fullMomentum = btcCandidatesFromContext({
+    ...context,
+    signal: { confidence: 0.7, probabilities: { up: 0.56 }, indicators: { bodyPct: 0.0006 } },
+    timeframe: '15m',
+    now: NOW,
+    mispriceStats: emptyStats(),
+    momentumStats: emptyStats()
+  });
+  assert.equal(fullMomentum.signals.length, 1);
+  assert.equal(fullMomentum.signals[0].sector, 'momentum');
+  assert.equal(fullMomentum.signals[0].order_kind, 'normal');
+  assert.equal(fullMomentum.signals[0].size_usd, 2);
 });
 
 function emptyStats() {

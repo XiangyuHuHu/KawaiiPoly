@@ -64,6 +64,7 @@ test('dry-run turns a pending SIGNAL into an order payload and does not call fet
   assert.equal(row.spec, 'v3.2');
   assert.equal(row.dry_run, true);
   assert.equal(row.amount_usd, 2);
+  assert.equal(row.order_kind, 'normal');
   assert.equal(row.shares, 5);
   assert.equal(row.url, 'https://polymarket.us/event/nyc-high-72');
   const pending = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
@@ -443,6 +444,36 @@ test('a cached BBO older than 45s at the decision is still stale_bbo', async () 
   const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
   assert.equal(report.results[0].code, 'stale_bbo');
   assert.equal(report.placed, 0);
+});
+
+test('a soft BTC edge places a $1 exploratory order and logs the kind', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'btc_misprice:cpc-btc-updown-15m-2026-10-16-1515z:up',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-2026-10-16-1515z',
+    side: 'Up',
+    limit_price: 0.5,
+    ask: 0.5,
+    bid: 0.5,
+    model_prob: 0.53,
+    spread_cents: 1,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    bbo_at: NOW.toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const report = await runPolymarketUsCycle({ config, now: NOW, fetchQuotes: false });
+  assert.equal(report.results[0].code, 'exploratory');
+  assert.equal(report.results[0].order_kind, 'exploratory');
+  assert.equal(report.results[0].sizeUsd, 1);
+  assert.equal(report.placed, 1);
+  const row = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
+  assert.equal(row.order_kind, 'exploratory');
+  assert.equal(row.amount_usd, 1);
+  const health = JSON.parse(await readFile(join(dir, 'us-health.json'), 'utf8'));
+  assert.equal(health.results[0].order_kind, 'exploratory');
 });
 
 test('macro yes and no use book depth when liquidity_usd is null', async () => {

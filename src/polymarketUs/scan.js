@@ -293,9 +293,14 @@ export function btcCandidatesFromContext({
   }
   const misprice = evaluated.map((row) => row.misprice).filter((row) => row.ok);
   const momentum = evaluated.map((row) => row.momentum).filter((row) => row.ok);
-  const chosenMisprice = misprice.sort((left, right) => right.signal.edge - left.signal.edge)[0] || null;
+  let chosenMisprice = misprice.sort((left, right) => right.signal.edge - left.signal.edge)[0] || null;
   let chosenMomentum = momentum.sort((left, right) => right.signal.edge - left.signal.edge)[0] || null;
-  if (chosenMisprice && chosenMomentum) chosenMomentum = null;
+  if (chosenMisprice && chosenMomentum) {
+    const mispriceFull = chosenMisprice.signal.order_kind !== 'exploratory';
+    const momentumFull = chosenMomentum.signal.order_kind !== 'exploratory';
+    if (mispriceFull || !momentumFull) chosenMomentum = null;
+    else chosenMisprice = null;
+  }
   return {
     signals: [chosenMisprice?.signal, chosenMomentum?.signal].filter(Boolean),
     skipped: evaluated.flatMap((row) => [row.misprice, row.momentum]).filter((row) => !row.ok).map((row) => row.reason)

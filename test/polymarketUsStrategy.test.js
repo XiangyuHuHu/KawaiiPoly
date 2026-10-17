@@ -253,9 +253,16 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
   });
   assert.equal(within45s.action, 'place');
   const thin = place({ sector: 'btc_misprice', model_prob: 0.43, edge: 0.03 });
-  assert.equal(thin.code, 'edge');
+  assert.equal(thin.action, 'place');
+  assert.equal(thin.code, 'exploratory');
+  assert.equal(thin.order_kind, 'exploratory');
+  assert.equal(thin.sizeUsd, 1);
+  assert.equal(thin.edge, 0.021);
   const rawFourPp = place({ sector: 'btc_misprice', model_prob: 0.44, bid: 0.39 });
-  assert.equal(rawFourPp.code, 'edge');
+  assert.equal(rawFourPp.code, 'exploratory');
+  assert.equal(rawFourPp.sizeUsd, 1);
+  const belowSoft = place({ sector: 'btc_misprice', model_prob: 0.42 });
+  assert.equal(belowSoft.code, 'edge');
   const blended = place({
     sector: 'btc_misprice',
     model_prob: 0.64,
@@ -326,7 +333,20 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
     same_way: true,
     distance_bps: 3
   });
-  assert.equal(shortDistance.code, 'momentum_distance');
+  assert.equal(shortDistance.action, 'place');
+  assert.equal(shortDistance.code, 'exploratory');
+  assert.equal(shortDistance.order_kind, 'exploratory');
+  assert.equal(shortDistance.sizeUsd, 1);
+  const tooShort = place({
+    sector: 'momentum',
+    limit_price: 0.6,
+    ask: 0.6,
+    model_prob: 0.7,
+    mos: true,
+    same_way: true,
+    distance_bps: 1
+  });
+  assert.equal(tooShort.code, 'momentum_distance');
   const gated = place({
     sector: 'momentum',
     limit_price: 0.6,
@@ -337,7 +357,86 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
     distance_bps: 4
   });
   assert.equal(gated.action, 'place');
+  assert.equal(gated.code, 'pass');
+  assert.equal(gated.order_kind, 'normal');
+  assert.equal(gated.sizeUsd, 2);
   assert.equal(gated.order.price.value, '0.60');
+});
+
+test('exploratory $1 stays inside the soft band and hard gates still skip', () => {
+  const liveSoft = place({
+    sector: 'live',
+    slug: 'tec-nba-live',
+    model_prob: 0.69,
+    ask: 0.66,
+    limit_price: 0.66
+  });
+  assert.equal(liveSoft.code, 'exploratory');
+  assert.equal(liveSoft.order_kind, 'exploratory');
+  assert.equal(liveSoft.sizeUsd, 1);
+  assert.equal(liveSoft.edge, 0.03);
+  const liveFull = place({
+    sector: 'live',
+    slug: 'tec-nba-live',
+    model_prob: 0.7,
+    ask: 0.66,
+    limit_price: 0.66
+  });
+  assert.equal(liveFull.code, 'pass');
+  assert.equal(liveFull.order_kind, 'normal');
+  assert.equal(liveFull.sizeUsd, 2);
+  const liveTiny = place({
+    sector: 'live',
+    slug: 'tec-nba-live',
+    model_prob: 0.67,
+    ask: 0.66,
+    limit_price: 0.66
+  });
+  assert.equal(liveTiny.code, 'edge');
+
+  const cold = { btc_misprice: { samples: 10, winRate: 0.4, streakLosses: 0 } };
+  const coldGap = place({ sector: 'btc_misprice', model_prob: 0.471429 }, { stats: cold });
+  assert.equal(coldGap.code, 'edge');
+  const coldSoft = place({ sector: 'btc_misprice', model_prob: 0.43 }, { stats: cold });
+  assert.equal(coldSoft.code, 'exploratory');
+  assert.equal(coldSoft.sizeUsd, 1);
+
+  const soft = { sector: 'btc_misprice', model_prob: 0.43, ask: 0.4, limit_price: 0.4, slug: 'cpc-btc-updown-15m-demo' };
+  const stale = place(soft, {
+    bboAsOf: WED_OPEN,
+    quote: {
+      yesAsk: 0.4,
+      spread: 0.01,
+      depthUsd: 40,
+      observedAt: new Date(WED_OPEN.getTime() - 46_000).toISOString()
+    }
+  });
+  assert.equal(stale.code, 'stale_bbo');
+  const empty = place(soft, {
+    quote: { yesAsk: 0.4, spread: 0.01, depthUsd: 0, observedAt: WED_OPEN.toISOString() }
+  });
+  assert.equal(empty.code, 'depth');
+  const ran = place({ ...soft, limit_price: 0.3 }, {
+    quote: { yesAsk: 0.4, spread: 0.01, depthUsd: 40, observedAt: WED_OPEN.toISOString() }
+  });
+  assert.equal(ran.code, 'price_ran_away');
+  const outside = place({ ...soft, ask: 0.21, limit_price: 0.21 });
+  assert.equal(outside.code, 'price_band');
+  const clash = place(soft, { openWindows: [{ slug: 'cpc-btc-updown-15m-demo', side: 'no' }] });
+  assert.equal(clash.code, 'one_sided');
+  const braked = place(soft, {
+    sectorPauses: {
+      btc_misprice: { pausedUntil: new Date(WED_OPEN.getTime() + 3_600_000).toISOString(), wins: 2, pnlUsd: -4 }
+    }
+  });
+  assert.equal(braked.code, 'sector_brake');
+  const reserveOk = place(soft, { buyingPower: 16 });
+  assert.equal(reserveOk.action, 'place');
+  assert.equal(reserveOk.sizeUsd, 1);
+  const reserveFail = place(soft, { buyingPower: 15.5 });
+  assert.equal(reserveFail.code, 'cash_reserve');
+  const fullReserve = place({ sector: 'btc_misprice', model_prob: 0.6, slug: 'cpc-btc-updown-15m-demo' }, { buyingPower: 16 });
+  assert.equal(fullReserve.code, 'cash_reserve');
 });
 
 test('live in-play uses 4pp up to 0.95 and endgame allows a high model', () => {
