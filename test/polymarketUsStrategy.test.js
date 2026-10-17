@@ -223,9 +223,11 @@ test('BTC age is measured against the trade-time clock, not the scan timestamp',
     }
   });
   assert.equal(fresh.action, 'place');
-  const stale = place({
+  const quiet = place({
     sector: 'btc_misprice',
     model_prob: 0.6,
+    ask: 0.4,
+    limit_price: 0.4,
     bbo_at: asOf.toISOString()
   }, {
     bboAsOf: asOf,
@@ -236,16 +238,76 @@ test('BTC age is measured against the trade-time clock, not the scan timestamp',
       observedAt: new Date(asOf.getTime() - 46_000).toISOString()
     }
   });
-  assert.equal(stale.code, 'stale_bbo');
+  assert.equal(quiet.action, 'place');
+  assert.equal(quiet.code, 'pass');
+  const midMoved = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    ask: 0.4,
+    limit_price: 0.4,
+    market_p: 0.395
+  }, {
+    bboAsOf: asOf,
+    quote: {
+      yesAsk: 0.4,
+      bestAsk: 0.4,
+      bestBid: 0.33,
+      spread: 0.07,
+      depthUsd: 50,
+      observedAt: new Date(asOf.getTime() - 46_000).toISOString()
+    }
+  });
+  assert.equal(midMoved.code, 'stale_bbo');
+  const moved = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    ask: 0.4,
+    limit_price: 0.4,
+    market_p: 0.4
+  }, {
+    bboAsOf: asOf,
+    quote: {
+      yesAsk: 0.34,
+      bestAsk: 0.34,
+      bestBid: 0.33,
+      spread: 0.01,
+      depthUsd: 50,
+      observedAt: new Date(asOf.getTime() - 46_000).toISOString()
+    }
+  });
+  assert.equal(moved.code, 'stale_bbo');
+  const chased = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    ask: 0.4,
+    limit_price: 0.4
+  }, {
+    bboAsOf: asOf,
+    quote: {
+      yesAsk: 0.46,
+      bestAsk: 0.46,
+      bestBid: 0.45,
+      spread: 0.01,
+      depthUsd: 50,
+      observedAt: new Date(asOf.getTime() - 46_000).toISOString()
+    }
+  });
+  assert.equal(chased.code, 'price_ran_away');
 });
 
 test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88 cap', () => {
-  const stale = place({
+  const quietClock = place({
     sector: 'btc_misprice',
     model_prob: 0.6,
     bbo_at: new Date(WED_OPEN.getTime() - 60_000).toISOString()
   });
-  assert.equal(stale.code, 'stale_bbo');
+  assert.equal(quietClock.action, 'place');
+  const absurdClock = place({
+    sector: 'btc_misprice',
+    model_prob: 0.6,
+    bbo_at: new Date(WED_OPEN.getTime() - 301_000).toISOString()
+  });
+  assert.equal(absurdClock.code, 'stale_bbo');
   const within45s = place({
     sector: 'btc_misprice',
     model_prob: 0.6,
@@ -411,7 +473,10 @@ test('exploratory $1 stays inside the soft band and hard gates still skip', () =
       observedAt: new Date(WED_OPEN.getTime() - 46_000).toISOString()
     }
   });
-  assert.equal(stale.code, 'stale_bbo');
+  assert.equal(stale.action, 'place');
+  assert.equal(stale.code, 'exploratory');
+  assert.equal(stale.order_kind, 'exploratory');
+  assert.equal(stale.sizeUsd, 1);
   const empty = place(soft, {
     quote: { yesAsk: 0.4, spread: 0.01, depthUsd: 0, observedAt: WED_OPEN.toISOString() }
   });

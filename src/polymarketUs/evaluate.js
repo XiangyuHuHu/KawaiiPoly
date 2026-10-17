@@ -1,6 +1,7 @@
 import { blendModelToMarket, marketProbability, round4 as roundProb } from './calibration.js';
 import { eventUrl } from './gateway.js';
 import {
+  bboIsFresh,
   cleanerEdgeFloor,
   exploratoryDistanceKind,
   exploratoryOrderKind,
@@ -165,15 +166,27 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const depthUsd = finite(input.depthUsd);
   if (depthUsd == null || depthUsd <= 0) return reject('depth');
 
+  const marketP = marketProbability({ side: input.side, ask, bid });
   if ((sector === 'btc-misprice' || sector === 'momentum') && rules.edge.btcMispriceRequiresFreshBbo) {
+    const cdnAge = finite(input.bboAgeMs);
     const sampled = Date.parse(input.bboSampledAt || '');
     const nowMs = input.now ? new Date(input.now).getTime() : Date.now();
-    if (!Number.isFinite(sampled) || nowMs - sampled > rules.edge.bboMaxAgeMs || sampled - nowMs > 2_000) {
-      return reject('stale-bbo');
-    }
+    const ageMs = cdnAge != null ? cdnAge : (Number.isFinite(sampled) ? nowMs - sampled : null);
+    // 扫描只有这一份报价，参照价就是当前卖价。小幅或零波动在 5 分钟内不算过期。
+    const fresh = bboIsFresh({
+      ageMs,
+      referenceAsk: ask,
+      currentAsk: ask,
+      referenceMid: marketP,
+      currentMid: marketP,
+      maxAgeMs: rules.edge.bboMaxAgeMs,
+      absurdAgeMs: rules.edge.bboAbsurdAgeMs,
+      quietMove: rules.edge.bboQuietMove,
+      futureToleranceMs: rules.edge.bboFutureToleranceMs
+    });
+    if (!fresh.ok) return reject('stale-bbo');
   }
 
-  const marketP = marketProbability({ side: input.side, ask, bid });
   let pUsed = modelProb;
   let pricedEdge = round4(modelProb - ask);
   let orderKind = 'normal';
