@@ -155,7 +155,20 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
 
   assert.equal(evaluateUsSignal(passing({ ask: 0.60, modelProb: 0.62 })).reason, 'edge');
   assert.equal(evaluateUsSignal(passing({ ask: 0.90, modelProb: 0.99 })).reason, 'price-band');
-  assert.equal(evaluateUsSignal(passing({ bboSampledAt: '2026-10-14T15:36:00.000Z' })).reason, 'stale-bbo');
+  assert.equal(evaluateUsSignal(passing({ bboSampledAt: '2026-10-14T15:36:00.000Z' })).ok, true);
+  assert.equal(evaluateUsSignal(passing({ bboSampledAt: '2026-10-14T15:31:00.000Z' })).reason, 'stale-bbo');
+  assert.equal(evaluateUsSignal(passing({
+    bboSampledAt: '2026-10-14T15:20:00.000Z',
+    bboAgeMs: 46_000
+  })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    bboSampledAt: '2026-10-14T15:20:00.000Z',
+    bboAgeMs: 0
+  })).ok, true);
+  assert.equal(evaluateUsSignal(passing({
+    bboSampledAt: NOW.toISOString(),
+    bboAgeMs: 301_000
+  })).reason, 'stale-bbo');
   assert.equal(evaluateUsSignal(passing({ resolutionRisk: 'High' })).reason, 'resolution-risk');
   assert.equal(evaluateUsSignal(passing({ confidence: 'Low' })).reason, 'confidence');
   assert.equal(evaluateUsSignal(passing({

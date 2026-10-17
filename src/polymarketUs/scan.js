@@ -248,6 +248,7 @@ export function btcCandidatesFromContext({
     timeframe,
     resolutionRisk,
     bboSampledAt: bbo?.sampledAt || null,
+    bboAgeMs: finite(bbo?.cacheAgeMs),
     distanceBps,
     dailyOrders,
     confidence: rankConfidenceScore(signal?.confidence)
@@ -328,6 +329,7 @@ export function normalizeModelRow(row = {}) {
     expiresAt: row.expires_at ?? row.expiresAt,
     windowId: row.window_id ?? row.windowId ?? row.slug,
     bboSampledAt: row.bbo_sampled_at ?? row.bboSampledAt,
+    bboAgeMs: row.bbo_age_ms ?? row.bboAgeMs,
     liveKind: row.live_kind ?? row.liveKind,
     timeframe: row.timeframe || null
   };
@@ -346,6 +348,7 @@ export async function refreshUsQuote(gateway, model) {
   return {
     ...quote,
     bboSampledAt: bbo.sampledAt,
+    bboAgeMs: finite(bbo.cacheAgeMs),
     expiresAt: model.expiresAt || market?.endDate || null,
     windowId: model.windowId || market?.assetPriceTerms?.windowStart || model.slug,
     resolutionRisk: model.resolutionRisk || btcResolutionRisk(market)

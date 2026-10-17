@@ -68,6 +68,7 @@ function sideDepthUsd(bbo, book, side) {
  * BBO 的 lastPriceSample 和订单簿的 transactTime 都是上一笔成交，安静的 15 分钟盘会超过 45 秒。
  * 订单簿经常 200 且带着这个成交时间，所以不能把「没有 transactTime」当成唯一的回退。
  * 年龄用这次 BBO 响应的缓存 Age。没有 Age（或订单簿 404）时，用 BBO 响应返回之后的本地时钟。
+ * 45 秒内直接新鲜。45 秒到 5 分钟且卖价、中间价波动不超过 2¢ 也新鲜。超过 5 分钟仍过期。
  */
 export function tradeObservationTime(source, decidedAt) {
   const decidedMs = decidedAt.getTime();

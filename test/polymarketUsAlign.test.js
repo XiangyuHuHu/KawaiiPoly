@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { US_BBO_MAX_AGE_MS, US_EDGE_BTC_MISPRICE } from '../src/polymarketUs/constants.js';
+import { US_BBO_ABSURD_AGE_MS, US_BBO_MAX_AGE_MS, US_BBO_QUIET_MOVE, US_EDGE_BTC_MISPRICE } from '../src/polymarketUs/constants.js';
 import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
 import { evaluateUsSignal as evaluateScan, minEdgeFor, sizeForRecord } from '../src/polymarketUs/evaluate.js';
 import { cleanerEdgeFloor, US_RULES } from '../src/polymarketUs/rules.js';
@@ -185,7 +185,11 @@ test('btc misprice sector keys normalize before win-rate and daily fills', async
 
 test('cold edge and BBO age are the same for scan and trade', () => {
   assert.equal(US_BBO_MAX_AGE_MS, 45_000);
+  assert.equal(US_BBO_ABSURD_AGE_MS, 300_000);
+  assert.equal(US_BBO_QUIET_MOVE, 0.02);
   assert.equal(US_RULES.edge.bboMaxAgeMs, US_BBO_MAX_AGE_MS);
+  assert.equal(US_RULES.edge.bboAbsurdAgeMs, US_BBO_ABSURD_AGE_MS);
+  assert.equal(US_RULES.edge.bboQuietMove, US_BBO_QUIET_MOVE);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);
   assert.equal(minEdgeFor('btc-misprice'), US_EDGE_BTC_MISPRICE);
@@ -211,8 +215,9 @@ test('cold edge and BBO age are the same for scan and trade', () => {
 
   const freshAt = new Date(NOW.getTime() - 5_000).toISOString();
   const exactAt = new Date(NOW.getTime() - US_BBO_MAX_AGE_MS).toISOString();
-  const justStaleAt = new Date(NOW.getTime() - (US_BBO_MAX_AGE_MS + 1)).toISOString();
-  const staleAt = new Date(NOW.getTime() - (US_BBO_MAX_AGE_MS + 1_000)).toISOString();
+  const justOverAt = new Date(NOW.getTime() - (US_BBO_MAX_AGE_MS + 1)).toISOString();
+  const quietAt = new Date(NOW.getTime() - (US_BBO_MAX_AGE_MS + 1_000)).toISOString();
+  const absurdAt = new Date(NOW.getTime() - (US_BBO_ABSURD_AGE_MS + 1_000)).toISOString();
   const btc = {
     sector: 'btc-misprice',
     slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
@@ -230,8 +235,14 @@ test('cold edge and BBO age are the same for scan and trade', () => {
   assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: freshAt })).ok, true);
   assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: withinOldWindow })).ok, true);
   assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: exactAt })).ok, true);
-  assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: justStaleAt })).reason, 'stale-bbo');
-  assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: staleAt })).reason, 'stale-bbo');
+  assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: justOverAt })).ok, true);
+  assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: quietAt })).ok, true);
+  assert.equal(evaluateScan(scanInput({ ...btc, bboSampledAt: absurdAt })).reason, 'stale-bbo');
+  assert.equal(evaluateScan(scanInput({
+    ...btc,
+    bboSampledAt: absurdAt,
+    bboAgeMs: US_BBO_MAX_AGE_MS + 1_000
+  })).ok, true);
 
   const tradeBtc = {
     sector: 'btc_misprice',
@@ -250,8 +261,29 @@ test('cold edge and BBO age are the same for scan and trade', () => {
   assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: freshAt })).action, 'place');
   assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: withinOldWindow })).action, 'place');
   assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: exactAt })).action, 'place');
-  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: justStaleAt })).code, 'stale_bbo');
-  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: staleAt })).code, 'stale_bbo');
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: justOverAt })).action, 'place');
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: quietAt })).action, 'place');
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: absurdAt })).code, 'stale_bbo');
+  const quietQuote = {
+    yesAsk: 0.55,
+    bestAsk: 0.55,
+    bestBid: 0.54,
+    spread: 0.01,
+    depthUsd: 80,
+    observedAt: quietAt
+  };
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: freshAt, market_p: 0.545 }), {
+    bboAsOf: NOW,
+    quote: quietQuote
+  }).action, 'place');
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: freshAt, market_p: 0.545 }), {
+    bboAsOf: NOW,
+    quote: { ...quietQuote, yesAsk: 0.48, bestAsk: 0.48, bestBid: 0.47, observedAt: quietAt }
+  }).code, 'stale_bbo');
+  assert.equal(trade(tradeSignal({ ...tradeBtc, bbo_at: freshAt, market_p: 0.545 }), {
+    bboAsOf: NOW,
+    quote: { ...quietQuote, yesAsk: 0.62, bestAsk: 0.62, bestBid: 0.61, observedAt: quietAt }
+  }).code, 'price_ran_away');
 
   for (const timeframe of ['15m', '1h']) {
     const scanEdge = {

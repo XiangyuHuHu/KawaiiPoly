@@ -6,7 +6,10 @@
  */
 
 import {
+  US_BBO_ABSURD_AGE_MS,
+  US_BBO_FUTURE_TOLERANCE_MS,
   US_BBO_MAX_AGE_MS,
+  US_BBO_QUIET_MOVE,
   US_BTC_MISPRICE_MAX_PRICE,
   US_BTC_MISPRICE_MIN_PRICE,
   US_BTC_MISPRICE_MODEL_WEIGHT,
@@ -49,8 +52,12 @@ export const US_RULES = Object.freeze({
     btcMispriceMinPrice: US_BTC_MISPRICE_MIN_PRICE,
     btcMispriceMaxPrice: US_BTC_MISPRICE_MAX_PRICE,
     btcMispriceRequiresFreshBbo: true,
-    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。BTC 错价 BBO 不超过 45 秒。
+    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。45 秒内不看波动。
     bboMaxAgeMs: US_BBO_MAX_AGE_MS,
+    // 超过 5 分钟一律过期。45 秒到 5 分钟之间，波动不超过 2¢ 仍新鲜。
+    bboAbsurdAgeMs: US_BBO_ABSURD_AGE_MS,
+    bboQuietMove: US_BBO_QUIET_MOVE,
+    bboFutureToleranceMs: US_BBO_FUTURE_TOLERANCE_MS,
     // Plan2 15m momentum distance is 8 bps. v3.2 uses half of that trigger.
     momentumOriginalDistanceBps: 8,
     momentumDistanceBps: 4,
@@ -175,6 +182,51 @@ export function exploratoryDistanceKind({ distance, needed, eligible }) {
   const usual = US_RULES.edge.momentumDistanceBps;
   if (distance + 1e-9 >= US_EXPLORATORY_MIN_DISTANCE_BPS && distance < usual - 1e-9) return 'exploratory';
   return 'skip';
+}
+
+function finitePrice(value) {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+/**
+ * 扫描 emit 和下单 recheck 共用。
+ * 45 秒内直接新鲜。45 秒到 5 分钟：卖价和中间价的变动都不超过 2¢ 仍新鲜。
+ * 超过 5 分钟、报价变动超过 2¢、没有年龄、或采样超前超过 2 秒，算过期。
+ * 没有缓存 Age 的调用方应先把年龄写成 0，再进来。
+ */
+export function bboIsFresh({
+  ageMs,
+  referenceAsk,
+  currentAsk,
+  referenceMid,
+  currentMid,
+  maxAgeMs = US_BBO_MAX_AGE_MS,
+  absurdAgeMs = US_BBO_ABSURD_AGE_MS,
+  quietMove = US_BBO_QUIET_MOVE,
+  futureToleranceMs = US_BBO_FUTURE_TOLERANCE_MS
+} = {}) {
+  if (ageMs == null || !Number.isFinite(Number(ageMs))) return { ok: false, reason: 'missing' };
+  const age = Number(ageMs);
+  const future = Number.isFinite(Number(futureToleranceMs)) ? Number(futureToleranceMs) : US_BBO_FUTURE_TOLERANCE_MS;
+  if (age < -future) return { ok: false, reason: 'future' };
+  const clock = Number.isFinite(Number(maxAgeMs)) ? Number(maxAgeMs) : US_BBO_MAX_AGE_MS;
+  if (age <= clock) return { ok: true, reason: 'clock' };
+  const absurd = Number.isFinite(Number(absurdAgeMs)) ? Number(absurdAgeMs) : US_BBO_ABSURD_AGE_MS;
+  if (age > absurd) return { ok: false, reason: 'absurd' };
+  const band = Number.isFinite(Number(quietMove)) ? Number(quietMove) : US_BBO_QUIET_MOVE;
+  const moves = [
+    finitePrice(referenceAsk) != null && finitePrice(currentAsk) != null
+      ? Math.abs(finitePrice(currentAsk) - finitePrice(referenceAsk))
+      : null,
+    finitePrice(referenceMid) != null && finitePrice(currentMid) != null
+      ? Math.abs(finitePrice(currentMid) - finitePrice(referenceMid))
+      : null
+  ].filter((value) => value != null);
+  if (moves.length === 0) return { ok: false, reason: 'uncompared' };
+  if (Math.max(...moves) <= band + 1e-9) return { ok: true, reason: 'quiet' };
+  return { ok: false, reason: 'moved' };
 }
 
 export function cleanerEdgeFloor(baseEdge, cold, rules = US_RULES) {

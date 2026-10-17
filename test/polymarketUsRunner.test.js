@@ -405,15 +405,16 @@ test('an old book transactTime does not stale a BBO received within 45s', async 
   assert.equal(report.placed, 1);
 });
 
-test('a cached BBO older than 45s at the decision is still stale_bbo', async () => {
+test('a cached BBO slightly over 45s still places when the ask has not moved', async () => {
   const { dir, config } = await fixture();
   await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
-    id: 'sig-btc-old-print',
+    id: 'sig-btc-quiet-age',
     sector: 'btc_misprice',
     slug: 'cpc-btc-updown-15m-old',
     side: 'Up',
     limit_price: 0.5,
     ask: 0.5,
+    market_p: 0.495,
     model_prob: 0.7,
     gates: { spread_cents: 1, depth_usd: 40 },
     bbo_at: new Date(Date.now() - 5_000).toISOString(),
@@ -442,8 +443,107 @@ test('a cached BBO older than 45s at the decision is still stale_bbo', async () 
     }
   };
   const report = await runPolymarketUsCycle({ config, now: NOW, gateway });
-  assert.equal(report.results[0].code, 'stale_bbo');
-  assert.equal(report.placed, 0);
+  assert.equal(report.results[0].code, 'pass');
+  assert.equal(report.results[0].order_kind, 'normal');
+  assert.equal(report.placed, 1);
+});
+
+test('a cached BBO over 45s is stale when the ask moved, and absurd age stays stale', async () => {
+  const { dir, config } = await fixture();
+  const pending = (id) => `${JSON.stringify({
+    id,
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-old',
+    side: 'Up',
+    limit_price: 0.5,
+    ask: 0.5,
+    market_p: 0.495,
+    model_prob: 0.7,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    bbo_at: new Date(Date.now() - 5_000).toISOString(),
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`;
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), pending('sig-btc-moved'));
+  const moved = await runPolymarketUsCycle({
+    config,
+    now: NOW,
+    gateway: {
+      async getBbo() {
+        return normalizedBbo({
+          bestBid: 0.39,
+          bestAsk: 0.4,
+          yesAsk: 0.4,
+          spread: 0.01,
+          cacheAgeMs: 46_000
+        });
+      },
+      async getBook() {
+        return { asks: [{ price: 0.4, shares: 100 }], bids: [{ price: 0.39, shares: 100 }] };
+      }
+    }
+  });
+  assert.equal(moved.results[0].code, 'stale_bbo');
+  assert.equal(moved.placed, 0);
+
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), pending('sig-btc-absurd'));
+  const absurd = await runPolymarketUsCycle({
+    config,
+    now: NOW,
+    gateway: {
+      async getBbo() {
+        return normalizedBbo({
+          bestBid: 0.49,
+          bestAsk: 0.5,
+          yesAsk: 0.5,
+          spread: 0.01,
+          cacheAgeMs: 301_000
+        });
+      },
+      async getBook() {
+        return { asks: [{ price: 0.5, shares: 100 }], bids: [{ price: 0.49, shares: 100 }] };
+      }
+    }
+  });
+  assert.equal(absurd.results[0].code, 'stale_bbo');
+  assert.equal(absurd.placed, 0);
+});
+
+test('a BBO response with no Age header still places', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
+    id: 'sig-btc-no-age',
+    sector: 'btc_misprice',
+    slug: 'cpc-btc-updown-15m-old',
+    side: 'Up',
+    limit_price: 0.5,
+    ask: 0.5,
+    model_prob: 0.7,
+    gates: { spread_cents: 1, depth_usd: 40 },
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending'
+  })}\n`);
+  const report = await runPolymarketUsCycle({
+    config,
+    now: NOW,
+    gateway: {
+      async getBbo() {
+        return normalizedBbo({
+          bestBid: 0.49,
+          bestAsk: 0.5,
+          yesAsk: 0.5,
+          spread: 0.01
+        });
+      },
+      async getBook() {
+        return { asks: [{ price: 0.5, shares: 100 }], bids: [{ price: 0.49, shares: 100 }] };
+      }
+    }
+  });
+  assert.equal(report.results[0].code, 'pass');
+  assert.equal(report.placed, 1);
 });
 
 test('a soft BTC edge places a $1 exploratory order and logs the kind', async () => {

@@ -82,10 +82,19 @@ export const US_MOMENTUM_MAX_PRICE = 0.88;
 export const US_MOMENTUM_TRIGGER_SCALE = 0.5;
 export const US_MAX_SPREAD = 0.03;
 /**
- * BTC 错价 BBO 最大年龄 45 秒（45000 ms）。
- * rules.edge.bboMaxAgeMs、config 默认值、扫描 emit 与下单 recheck 都引用这一常量。
+ * BTC 错价 BBO 时钟新鲜窗口 45 秒（45000 ms）。
+ * 这个窗口内不看价格波动。rules.edge.bboMaxAgeMs、config 默认值、扫描 emit 与下单 recheck 都引用这一常量。
  */
 export const US_BBO_MAX_AGE_MS = 45_000;
+/**
+ * 超过 45 秒、不超过 5 分钟：卖价和中间价相对信号的波动在 US_BBO_QUIET_MOVE 以内仍算新鲜。
+ * 超过 5 分钟，即使报价没动也是过期。小幅波动不算过期。
+ */
+export const US_BBO_ABSURD_AGE_MS = 5 * 60 * 1000;
+/** 2¢。超过 45 秒后，卖价或中间价的变动大于这个幅度才算报价变了。 */
+export const US_BBO_QUIET_MOVE = 0.02;
+/** 采样时间比现在超前超过 2 秒，不当作刚收到的报价。 */
+export const US_BBO_FUTURE_TOLERANCE_MS = 2_000;
 
 /** 真实下单日帽（太平洋自然日）。dry-run 不计入。 */
 export const US_DAILY_CAPS = Object.freeze({

@@ -44,7 +44,7 @@ import {
 } from './shape.js';
 import { blendModelToMarket, marketProbability, sectorBrakeReason } from './calibration.js';
 import { quoteForSide } from './gateway.js';
-import { cleanerEdgeFloor, exploratoryDistanceKind, exploratoryOrderKind, US_RULES } from './rules.js';
+import { bboIsFresh, cleanerEdgeFloor, exploratoryDistanceKind, exploratoryOrderKind, US_RULES } from './rules.js';
 import { describeSession } from './time.js';
 import { sizeUsLimitBuy } from './trading.js';
 
@@ -321,25 +321,34 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'missing_price', '没有可用限价。', { ...base, status: 'skipped' });
   }
 
-  // 年龄对着下单时刻（bboAsOf），不是扫描开始时冻结的 now。门槛仍是 45 秒。
+  // 年龄对着下单时刻（bboAsOf）。45 秒内不看波动。45 秒到 5 分钟，卖价和中间价波动不超过 2¢ 仍新鲜。
   const asOf = context.bboAsOf instanceof Date
     ? context.bboAsOf
     : new Date(context.bboAsOf || now);
   const asOfMs = Number.isFinite(asOf.getTime()) ? asOf.getTime() : now.getTime();
   const bboAt = Date.parse(quote?.observedAt || signal?.bbo_at || signal?.bboAt || '');
   const bboAge = Number.isFinite(bboAt) ? asOfMs - bboAt : null;
-  // 与 US_BBO_MAX_AGE_MS / rules.edge.bboMaxAgeMs 同一常量（BTC 错价 BBO 不超过 45 秒）。
-  const bboFresh = bboAge != null && bboAge >= 0 && bboAge <= (context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS);
-  if (sector === 'btc_misprice' && !bboFresh) {
-    return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
-  }
-
   const marketP = marketProbability({
     side,
-    ask: executionPrice,
-    bid: readPresentNumber(signal?.bid, signal?.gates?.bid),
-    quote
+    ask: quotedAsk ?? executionPrice,
+    bid: quotedAsk == null ? readPresentNumber(signal?.bid, signal?.gates?.bid) : null,
+    quote: quotedAsk == null ? null : quote
   });
+  const referenceMid = readNumber(signal?.market_p, signal?.marketP);
+  if (sector === 'btc_misprice') {
+    const fresh = bboIsFresh({
+      ageMs: bboAge,
+      referenceAsk: signalAsk,
+      currentAsk: quote ? quotedAsk : signalAsk,
+      referenceMid,
+      currentMid: marketP,
+      maxAgeMs: context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS
+    });
+    if (!fresh.ok) {
+      return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
+    }
+  }
+
   const blended = sector === 'btc_misprice'
     ? blendModelToMarket(model, marketP, US_BTC_MISPRICE_MODEL_WEIGHT)
     : { modelP: model, marketP, pUsed: model };
