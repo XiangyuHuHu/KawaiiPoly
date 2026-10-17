@@ -227,7 +227,8 @@ function formatCohort(title, cohort, bucketWidth) {
     `  胜率 ${win}`,
     `  毛损益 ${money(summary.grossPnl)}，净损益 ${money(summary.netPnl)}，费用拖累 ${money(summary.feeDrag)}，投入 ${money(summary.invested)}`,
     `  最大回撤 ${money(summary.maxDrawdown)}（现金加未结算成本；亏损在结算时进入回撤），期末现金 ${money(summary.endingCash)}`,
-    `  同卖一档随机对照: 净损益 ${money(baseline.netPnl)}，胜率 ${baseWin}，最大回撤 ${money(baseline.maxDrawdown)}，被迫同侧 ${baseline.forcedSameSide}/${baseline.settled}`
+    `  同卖一档随机对照: 净损益 ${money(baseline.netPnl)}，胜率 ${baseWin}，最大回撤 ${money(baseline.maxDrawdown)}，被迫同侧 ${baseline.forcedSameSide}/${baseline.settled}`,
+    `  同报价随机方向: 净损益 ${money(cohort.quoteRandom.netPnl)}，胜率 ${cohort.quoteRandom.winRate == null ? 'n/a' : `${(cohort.quoteRandom.winRate * 100).toFixed(2)}% (${cohort.quoteRandom.wins}/${cohort.quoteRandom.settled})`}，最大回撤 ${money(cohort.quoteRandom.maxDrawdown)}`
   ];
   if (cohort.buckets.length) {
     lines.push('  卖一档位  策略笔数  策略净利  对照笔数  对照净利');

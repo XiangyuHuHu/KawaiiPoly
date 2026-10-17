@@ -10,7 +10,7 @@ import {
   JEV_DEFAULTS, PACIFIC_TIME_ZONE, askBucket, calendarDay, chooseOutcome, cohortReport,
   createLcg, evaluateJevQuote, feeAdjustedCost, feeAdjustedEdge, filterCalendarDay,
   indexOfficialOutcomes, loadResearchDirectory, maxDrawdown, normalizeOpportunity,
-  quotesFromOpportunityFiles, sameAskBucketBaseline, utcDatesAround
+  quotesFromOpportunityFiles,   sameAskBucketBaseline, sameQuoteRandomBaseline, utcDatesAround
 } from '../src/jevBtc5mBacktest.js';
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
@@ -203,6 +203,21 @@ test('research jsonl loader keeps the btc tape, ignores a torn last line, and re
   }
 });
 
+test('same-quote coin flip uses its own seed and can buy the other ask', () => {
+  const trade = {
+    observedMs: 1, targetMs: 2, ask: 0.5, usd: 10, settled: true, won: true,
+    actualDirection: 'up', outcomeSource: 'test', payout: 19.3, grossPnl: 10, netPnl: 9.3,
+    book: { up: { ask: 0.5, bid: 0.48 }, down: { ask: 0.55, bid: 0.53 } }
+  };
+  const random = createLcg((JEV_DEFAULTS.seed + 0x9e3779b9) >>> 0);
+  const expected = ['up', 'down'][Math.floor(random() * 2)];
+  const baseline = sameQuoteRandomBaseline([trade], JEV_DEFAULTS);
+  assert.equal(baseline.trades[0].direction, expected);
+  assert.equal(baseline.forcedSameSide, 0);
+  assert.deepEqual(sameQuoteRandomBaseline([trade, trade], JEV_DEFAULTS).trades.map((row) => row.direction),
+    sameQuoteRandomBaseline([trade, trade], JEV_DEFAULTS).trades.map((row) => row.direction));
+});
+
 test('a second slot is skipped when the loss has not left enough cash', () => {
   const first = normalizeOpportunity(opportunity({
     observedAtIso: '2026-10-16T15:00:00.000Z', targetTimeIso: '2026-10-16T15:02:30.000Z',
@@ -295,6 +310,7 @@ test('the command prints a pacific and utc summary from a local fixture and does
   assert.match(result.stdout, /净损益 \$9\.30/);
   assert.match(result.stdout, /最大回撤/);
   assert.match(result.stdout, /同卖一档随机对照/);
+  assert.match(result.stdout, /同报价随机方向/);
   assert.doesNotMatch(result.stdout, /live trading enabled/i);
   const missing = spawnSync(process.execPath, [
     'scripts/backtest-jev-btc-5m.mjs', '--dir', join(root, 'missing')

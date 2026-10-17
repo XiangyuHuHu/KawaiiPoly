@@ -33,7 +33,8 @@ export const DATA_ASSUMPTIONS = Object.freeze([
   'Fees follow the crypto taker curve: net shares = stake/ask * (1 - feeRate * (1 - ask)). The 0.07 figure is the curve parameter, not a flat 7% commission.',
   'Each 5-minute slot contributes at most one trade, the first quote whose fee-adjusted edge clears the threshold.',
   'Settlement pays $1 or $0 per net share. Official Polymarket resolutions win over a Binance open-to-close proxy. Binance close >= open is labeled Up and is not the Chainlink print Polymarket uses.',
-  'The same-ask-bucket baseline, at the same quote, picks a seeded random side whose ask sits in the same price bucket. A one-sided bucket is forced to that side and counted.',
+  'The same-ask-bucket baseline, at the same quote, picks a seeded random side whose ask sits in the same price bucket. Up and Down asks usually fall in different buckets, so that control is often forced onto the strategy side and is counted.',
+  'A second control flips a seeded coin between the two sides of the same quote and fills at that side ask. It is not bucket-matched.',
   'Stake is taken from cash already freed by earlier settlements. A slot whose quote qualifies but cannot be funded is skipped once. A missing outcome is not booked as a loss, and its stake is returned at the window end.'
 ]);
 
@@ -513,16 +514,13 @@ export function createLcg(seed) {
   };
 }
 
-export function sameAskBucketBaseline(trades, options = JEV_DEFAULTS) {
-  const random = createLcg(options.seed);
+function baselineFromChoices(trades, choicesFor, random, options) {
   const baseline = [];
   let forcedSameSide = 0;
   let noCandidate = 0;
   for (const trade of trades) {
     if (!trade.settled) continue;
-    const bucket = askBucket(trade.ask, options.bucketWidth);
-    const choices = ['up', 'down'].filter((direction) => askBucket(trade.book[direction].ask, options.bucketWidth) === bucket
-      && trade.book[direction].ask > 0 && trade.book[direction].ask < 1);
+    const choices = choicesFor(trade);
     if (!choices.length) {
       noCandidate += 1;
       continue;
@@ -546,7 +544,7 @@ export function sameAskBucketBaseline(trades, options = JEV_DEFAULTS) {
       payout: won ? shares : 0,
       grossPnl: (won ? unmarked : 0) - options.stake,
       netPnl: (won ? shares : 0) - options.stake,
-      bucket
+      bucket: askBucket(ask, options.bucketWidth)
     });
   }
   return {
@@ -555,6 +553,25 @@ export function sameAskBucketBaseline(trades, options = JEV_DEFAULTS) {
     noCandidate,
     summary: summarizeTrades(baseline, options.startingCash)
   };
+}
+
+function sideHasAsk(trade, direction) {
+  const ask = trade.book?.[direction]?.ask;
+  return ask > 0 && ask < 1;
+}
+
+export function sameAskBucketBaseline(trades, options = JEV_DEFAULTS) {
+  return baselineFromChoices(trades, (trade) => {
+    const bucket = askBucket(trade.ask, options.bucketWidth);
+    return ['up', 'down'].filter((direction) => sideHasAsk(trade, direction)
+      && askBucket(trade.book[direction].ask, options.bucketWidth) === bucket);
+  }, createLcg(options.seed), options);
+}
+
+/** Coin flip between the two sides of the same quote. Separate seed stream from the bucket control. */
+export function sameQuoteRandomBaseline(trades, options = JEV_DEFAULTS) {
+  return baselineFromChoices(trades, (trade) => ['up', 'down'].filter((direction) => sideHasAsk(trade, direction)),
+    createLcg((options.seed + 0x9e3779b9) >>> 0), options);
 }
 
 export function bucketComparison(strategyTrades, baselineTrades, width = JEV_DEFAULTS.bucketWidth) {
@@ -589,6 +606,7 @@ export function cohortReport(quotes, outcomeFor, options = JEV_DEFAULTS) {
   const replay = replayJev(quotes, outcomeFor, options);
   const summary = summarizeTrades(replay.trades, options.startingCash);
   const baseline = sameAskBucketBaseline(replay.trades, options);
+  const quoteRandom = sameQuoteRandomBaseline(replay.trades, options);
   return {
     quotes: quotes.length,
     slots: replay.slots,
@@ -599,6 +617,11 @@ export function cohortReport(quotes, outcomeFor, options = JEV_DEFAULTS) {
       ...displaySummary(baseline.summary),
       forcedSameSide: baseline.forcedSameSide,
       noCandidate: baseline.noCandidate
+    },
+    quoteRandom: {
+      ...displaySummary(quoteRandom.summary),
+      forcedSameSide: quoteRandom.forcedSameSide,
+      noCandidate: quoteRandom.noCandidate
     },
     buckets: bucketComparison(replay.trades, baseline.trades, options.bucketWidth).map((row) => ({
       ...row,
