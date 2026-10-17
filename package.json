@@ -15,6 +15,7 @@
     "us:scan": "node scripts/us-scan.js scan",
     "us:settle": "node scripts/us-scan.js settle",
     "test": "node --test test/*.test.js",
+    "backtest:jev-btc-5m": "node scripts/backtest-jev-btc-5m.mjs",
     "check": "node --check server.js"
   },
   "dependencies": {
