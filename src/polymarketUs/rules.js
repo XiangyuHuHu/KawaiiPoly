@@ -10,7 +10,11 @@ import {
   US_BTC_MISPRICE_MAX_PRICE,
   US_BTC_MISPRICE_MIN_PRICE,
   US_BTC_MISPRICE_MODEL_WEIGHT,
-  US_EDGE_BTC_MISPRICE
+  US_EDGE_BTC_MISPRICE,
+  US_EXPLORATORY_MAX_EDGE,
+  US_EXPLORATORY_MIN_DISTANCE_BPS,
+  US_EXPLORATORY_MIN_EDGE,
+  US_EXPLORATORY_SIZE_USD
 } from './constants.js';
 
 export const US_SPEC_VERSION = '3.2';
@@ -37,6 +41,10 @@ export const US_RULES = Object.freeze({
     nonBtcNonLive: 0.03,
     // 与 constants.US_EDGE_BTC_MISPRICE 同一常量。只覆盖 BTC 15m / 1h 错价。
     btcMisprice: US_EDGE_BTC_MISPRICE,
+    exploratorySizeUsd: US_EXPLORATORY_SIZE_USD,
+    exploratoryMinEdge: US_EXPLORATORY_MIN_EDGE,
+    exploratoryMaxEdge: US_EXPLORATORY_MAX_EDGE,
+    exploratoryMinDistanceBps: US_EXPLORATORY_MIN_DISTANCE_BPS,
     btcMispriceModelWeight: US_BTC_MISPRICE_MODEL_WEIGHT,
     btcMispriceMinPrice: US_BTC_MISPRICE_MIN_PRICE,
     btcMispriceMaxPrice: US_BTC_MISPRICE_MAX_PRICE,
@@ -144,6 +152,31 @@ export const US_SECTORS = Object.freeze(Object.keys(US_RULES.dailyCaps));
  * 不用曾经的 +0.02。尾盘没有 edge 门槛，不乘这个系数，模型地板仍是 0.88。
  * 扫描 minEdgeFor 与下单 evaluateUsSignal 都调用这里。
  */
+/**
+ * 正常仓：edge 达到正式门槛（含冷板块 ×1.5）。
+ * 试探仓：只给 BTC 错价和 Live 盘中，edge 在 [2pp, 4pp)。
+ * 其余情况跳过。4pp 本身是正常仓，不是试探。
+ */
+export function exploratoryOrderKind({ edge, fullMinEdge, eligible }) {
+  if (edge == null || !Number.isFinite(edge)) return 'skip';
+  if (fullMinEdge != null && edge + 1e-12 >= fullMinEdge) return 'normal';
+  if (!eligible) return 'skip';
+  if (edge + 1e-12 >= US_EXPLORATORY_MIN_EDGE && edge < US_EXPLORATORY_MAX_EDGE - 1e-12) return 'exploratory';
+  return 'skip';
+}
+
+/**
+ * 动量距离。正常仓达到所需 bps（冷板块 8）。试探仓只在 [2, 4) bps。
+ */
+export function exploratoryDistanceKind({ distance, needed, eligible }) {
+  if (distance == null || !Number.isFinite(distance)) return 'skip';
+  if (needed != null && distance + 1e-9 >= needed) return 'normal';
+  if (!eligible) return 'skip';
+  const usual = US_RULES.edge.momentumDistanceBps;
+  if (distance + 1e-9 >= US_EXPLORATORY_MIN_DISTANCE_BPS && distance < usual - 1e-9) return 'exploratory';
+  return 'skip';
+}
+
 export function cleanerEdgeFloor(baseEdge, cold, rules = US_RULES) {
   const base = Number(baseEdge);
   if (!Number.isFinite(base)) return null;

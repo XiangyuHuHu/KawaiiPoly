@@ -1,6 +1,13 @@
 import { blendModelToMarket, marketProbability, round4 as roundProb } from './calibration.js';
 import { eventUrl } from './gateway.js';
-import { cleanerEdgeFloor, US_RULES, US_SPEC_VERSION } from './rules.js';
+import {
+  cleanerEdgeFloor,
+  exploratoryDistanceKind,
+  exploratoryOrderKind,
+  US_RULES,
+  US_SPEC_VERSION
+} from './rules.js';
+import { US_EXPLORATORY_SIZE_USD } from './constants.js';
 import { normalizeSector } from './shape.js';
 
 function round4(value) {
@@ -156,7 +163,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
 
   const sizing = sizeForRecord(input.record || {}, rules);
   const depthUsd = finite(input.depthUsd);
-  if (depthUsd == null || depthUsd + 1e-9 < sizing.usd) return reject('depth');
+  if (depthUsd == null || depthUsd <= 0) return reject('depth');
 
   if ((sector === 'btc-misprice' || sector === 'momentum') && rules.edge.btcMispriceRequiresFreshBbo) {
     const sampled = Date.parse(input.bboSampledAt || '');
@@ -169,18 +176,22 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const marketP = marketProbability({ side: input.side, ask, bid });
   let pUsed = modelProb;
   let pricedEdge = round4(modelProb - ask);
+  let orderKind = 'normal';
   if (sector === 'btc-misprice') {
     const minPx = rules.edge.btcMispriceMinPrice;
     const maxPx = rules.edge.btcMispriceMaxPrice;
     if (ask + 1e-12 < minPx || ask - 1e-12 > maxPx) return reject('price-band');
     pUsed = blendModelToMarket(modelProb, marketP, rules.edge.btcMispriceModelWeight).pUsed;
     pricedEdge = round4(pUsed - ask);
-    if (pricedEdge + 1e-12 < minEdgeFor(sector, { weak: sizing.weak }, rules)) return reject('edge');
+    const fullMinEdge = minEdgeFor(sector, { weak: sizing.weak }, rules);
+    orderKind = exploratoryOrderKind({ edge: pricedEdge, fullMinEdge, eligible: true });
+    if (orderKind === 'skip') return reject('edge');
   } else if (sector === 'momentum') {
     if (ask - rules.edge.momentumPriceCap > 1e-9) return reject('momentum-price-cap');
     const distance = finite(input.distanceBps);
     const needed = sizing.weak ? rules.edge.momentumOriginalDistanceBps : rules.edge.momentumDistanceBps;
-    if (distance == null || distance + 1e-9 < needed) return reject('momentum-distance');
+    orderKind = exploratoryDistanceKind({ distance, needed, eligible: true });
+    if (orderKind === 'skip') return reject('momentum-distance');
     if (rules.edge.momentumRequiresSameWay && input.sameWay !== true) return reject('momentum-same-way');
     const mos = round4(modelProb - ask);
     const mosFloor = sizing.weak ? rules.edge.nonBtcNonLive : 0;
@@ -192,9 +203,13 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     if (ask + 1e-12 < rules.edge.liveInGameMinPrice || ask - rules.edge.liveInGameMaxPrice > 1e-9) {
       return reject('live-in-game-price');
     }
-    if (round4(modelProb - ask) + 1e-12 < minEdgeFor(sector, { liveKind, weak: sizing.weak }, rules)) {
-      return reject('edge');
-    }
+    const fullMinEdge = minEdgeFor(sector, { liveKind, weak: sizing.weak }, rules);
+    orderKind = exploratoryOrderKind({
+      edge: round4(modelProb - ask),
+      fullMinEdge,
+      eligible: true
+    });
+    if (orderKind === 'skip') return reject('edge');
   } else {
     if (ask + 1e-12 < rules.edge.standardMinPrice || ask - rules.edge.standardMaxPrice > 1e-9) {
       return reject('price-band');
@@ -219,8 +234,11 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const used = (finite(input.dailyFilled) || 0) + (finite(input.dailyPending) || 0);
   if (used >= rules.dailyCaps[sector]) return reject('daily-cap');
 
+  const sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.usd;
+  if (depthUsd + 1e-9 < sizeUsd) return reject('depth');
+
   const buyingPower = finite(input.buyingPower);
-  if (buyingPower != null && buyingPower - sizing.usd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
+  if (buyingPower != null && buyingPower - sizeUsd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
 
   const slug = String(input.slug || '');
   if (!slug) return reject('slug');
@@ -237,7 +255,8 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     slug,
     side,
     limit_price: round4(ask),
-    size_usd: sizing.usd,
+    size_usd: sizeUsd,
+    order_kind: orderKind,
     edge,
     model_prob: round4(modelProb),
     model_p: roundProb(modelProb),
@@ -269,6 +288,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
       liquidity_usd: liquidityUsd,
       depth_usd: depthUsd,
       size_tier: sizing.tier,
+      order_kind: orderKind,
       cash_reserve_checked: buyingPower != null
     }
   };
