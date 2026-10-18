@@ -2,7 +2,9 @@ import {
   US_BBO_MAX_AGE_MS,
   US_COUNTED_FILL_STATUSES,
   US_DAILY_CAPS,
+  US_BTC_MISPRICE_MAX_EDGE,
   US_BTC_MISPRICE_MAX_PRICE,
+  US_BTC_MISPRICE_MIN_MODEL,
   US_BTC_MISPRICE_MIN_PRICE,
   US_BTC_MISPRICE_MODEL_WEIGHT,
   US_EDGE_BTC_MISPRICE,
@@ -44,7 +46,14 @@ import {
 } from './shape.js';
 import { blendModelToMarket, marketProbability, sectorBrakeReason } from './calibration.js';
 import { quoteForSide } from './gateway.js';
-import { bboIsFresh, cleanerEdgeFloor, exploratoryDistanceKind, exploratoryOrderKind, US_RULES } from './rules.js';
+import {
+  bboIsFresh,
+  classifyBtcMisprice,
+  cleanerEdgeFloor,
+  exploratoryDistanceKind,
+  exploratoryOrderKind,
+  US_RULES
+} from './rules.js';
 import { describeSession } from './time.js';
 import { sizeUsLimitBuy } from './trading.js';
 
@@ -260,7 +269,7 @@ function oppositeOpen(signal, side, openWindows) {
 }
 
 /**
- * 对一条 SIGNAL 做 v3.2 门控。不访问网络。
+ * 对一条 SIGNAL 做 v3.3 门控。不访问网络。
  * action: place | skip | defer
  */
 export function evaluateUsSignal(signal, context = {}) {
@@ -321,7 +330,7 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'missing_price', '没有可用限价。', { ...base, status: 'skipped' });
   }
 
-  // 年龄对着下单时刻（bboAsOf）。45 秒内不看波动。45 秒到 5 分钟，卖价和中间价波动不超过 2¢ 仍新鲜。
+  // 年龄对着下单时刻（bboAsOf）。30 秒内不看波动。30 秒到 3 分钟，卖价和中间价波动不超过 2¢ 仍新鲜。
   const asOf = context.bboAsOf instanceof Date
     ? context.bboAsOf
     : new Date(context.bboAsOf || now);
@@ -406,11 +415,29 @@ export function evaluateUsSignal(signal, context = {}) {
       exploratoryReason = `试探单 $1。动量距离 ${distance} bps 在 2–4 的软区间。`;
     }
   }
-  if (minEdge != null) {
+  if (minEdge != null && sector === 'btc_misprice') {
+    const verdict = classifyBtcMisprice({ modelProb: model, pricedEdge: edge, fullMinEdge: minEdge });
+    if (verdict.reason === 'model_floor') {
+      return decision('skip', 'model_floor', `BTC 错价模型 ${model} 低于 ${US_BTC_MISPRICE_MIN_MODEL}。`, {
+        ...base,
+        status: 'skipped'
+      });
+    }
+    if (verdict.reason === 'edge_cap') {
+      return decision('skip', 'edge_cap', `BTC 错价 edge ${edge} 高于上限 ${US_BTC_MISPRICE_MAX_EDGE}。`, {
+        ...base,
+        status: 'skipped'
+      });
+    }
+    if (verdict.reason === 'edge') {
+      return decision('skip', 'edge', `edge ${edge} 低于门槛 ${minEdge}。`, { ...base, status: 'skipped' });
+    }
+    orderKind = verdict.orderKind;
+  } else if (minEdge != null) {
     const edgeKind = exploratoryOrderKind({
       edge,
       fullMinEdge: minEdge,
-      eligible: sector === 'btc_misprice' || sector === 'live'
+      eligible: sector === 'live'
     });
     if (edgeKind === 'skip') {
       return decision('skip', 'edge', `edge ${edge} 低于门槛 ${minEdge}。`, { ...base, status: 'skipped' });
@@ -495,7 +522,7 @@ export function evaluateUsSignal(signal, context = {}) {
     limitPrice: executionPrice,
     sizeUsd
   });
-  return decision('place', orderKind === 'exploratory' ? 'exploratory' : 'pass', exploratoryReason || '通过 v3.2 门控。', {
+  return decision('place', orderKind === 'exploratory' ? 'exploratory' : 'pass', exploratoryReason || '通过 v3.3 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,

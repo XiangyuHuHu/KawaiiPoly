@@ -2,6 +2,7 @@ import { blendModelToMarket, marketProbability, round4 as roundProb } from './ca
 import { eventUrl } from './gateway.js';
 import {
   bboIsFresh,
+  classifyBtcMisprice,
   cleanerEdgeFloor,
   exploratoryDistanceKind,
   exploratoryOrderKind,
@@ -197,8 +198,9 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     pUsed = blendModelToMarket(modelProb, marketP, rules.edge.btcMispriceModelWeight).pUsed;
     pricedEdge = round4(pUsed - ask);
     const fullMinEdge = minEdgeFor(sector, { weak: sizing.weak }, rules);
-    orderKind = exploratoryOrderKind({ edge: pricedEdge, fullMinEdge, eligible: true });
-    if (orderKind === 'skip') return reject('edge');
+    const verdict = classifyBtcMisprice({ modelProb, pricedEdge, fullMinEdge });
+    if (verdict.reason) return reject(verdict.reason === 'model_floor' ? 'model-floor' : verdict.reason === 'edge_cap' ? 'edge-cap' : verdict.reason);
+    orderKind = verdict.orderKind;
   } else if (sector === 'momentum') {
     if (ask - rules.edge.momentumPriceCap > 1e-9) return reject('momentum-price-cap');
     const distance = finite(input.distanceBps);

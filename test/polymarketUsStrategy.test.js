@@ -51,8 +51,8 @@ function place(overrides = {}, context = {}) {
   });
 }
 
-test('SCAN_SPEC v3.2 caps, edges, and momentum scale are constants', () => {
-  assert.equal(US_SPEC_VERSION, 'v3.2');
+test('SCAN_SPEC v3.3 caps, edges, and momentum scale are constants', () => {
+  assert.equal(US_SPEC_VERSION, 'v3.3');
   assert.deepEqual(US_DAILY_CAPS, {
     live: 10,
     momentum: 15,
@@ -315,16 +315,20 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
   });
   assert.equal(within45s.action, 'place');
   const thin = place({ sector: 'btc_misprice', model_prob: 0.43, edge: 0.03 });
-  assert.equal(thin.action, 'place');
-  assert.equal(thin.code, 'exploratory');
-  assert.equal(thin.order_kind, 'exploratory');
-  assert.equal(thin.sizeUsd, 1);
-  assert.equal(thin.edge, 0.021);
+  assert.equal(thin.action, 'skip');
+  assert.equal(thin.code, 'model_floor');
   const rawFourPp = place({ sector: 'btc_misprice', model_prob: 0.44, bid: 0.39 });
-  assert.equal(rawFourPp.code, 'exploratory');
-  assert.equal(rawFourPp.sizeUsd, 1);
+  assert.equal(rawFourPp.code, 'model_floor');
   const belowSoft = place({ sector: 'btc_misprice', model_prob: 0.42 });
-  assert.equal(belowSoft.code, 'edge');
+  assert.equal(belowSoft.code, 'model_floor');
+  const fatEdge = place({
+    sector: 'btc_misprice',
+    model_prob: 0.90,
+    ask: 0.40,
+    limit_price: 0.40,
+    bid: 0.39
+  });
+  assert.equal(fatEdge.code, 'edge_cap');
   const blended = place({
     sector: 'btc_misprice',
     model_prob: 0.64,
@@ -333,38 +337,40 @@ test('BTC misprice requires 4pp and a 45s BBO; momentum needs gates and the 0.88
     bid: 0.54
   });
   assert.equal(blended.action, 'place');
-  assert.equal(blended.pUsed, 0.6115);
-  assert.equal(blended.edge, 0.0615);
+  assert.equal(blended.order_kind, 'normal');
+  assert.equal(blended.sizeUsd, 2);
+  assert.equal(blended.pUsed, 0.5973);
+  assert.equal(blended.edge, 0.0473);
   const atFloor = place({
     sector: 'btc_misprice',
-    model_prob: 0.70,
-    ask: 0.25,
-    limit_price: 0.25,
-    bid: 0.24
+    model_prob: 0.56,
+    ask: 0.35,
+    limit_price: 0.35,
+    bid: 0.34
   });
   assert.equal(atFloor.action, 'place');
   const belowFloor = place({
     sector: 'btc_misprice',
     model_prob: 0.80,
-    ask: 0.24,
-    limit_price: 0.24,
-    bid: 0.23
+    ask: 0.34,
+    limit_price: 0.34,
+    bid: 0.33
   });
   assert.equal(belowFloor.code, 'price_band');
   const atCap = place({
     sector: 'btc_misprice',
-    model_prob: 0.90,
-    ask: 0.75,
-    limit_price: 0.75,
-    bid: 0.74
+    model_prob: 0.80,
+    ask: 0.65,
+    limit_price: 0.65,
+    bid: 0.64
   });
   assert.equal(atCap.action, 'place');
   const aboveCap = place({
     sector: 'btc_misprice',
-    model_prob: 0.90,
-    ask: 0.76,
-    limit_price: 0.76,
-    bid: 0.75
+    model_prob: 0.80,
+    ask: 0.66,
+    limit_price: 0.66,
+    bid: 0.65
   });
   assert.equal(aboveCap.code, 'price_band');
   const longshot = place({
@@ -457,26 +463,38 @@ test('exploratory $1 stays inside the soft band and hard gates still skip', () =
   assert.equal(liveTiny.code, 'edge');
 
   const cold = { btc_misprice: { samples: 10, winRate: 0.4, streakLosses: 0 } };
-  const coldGap = place({ sector: 'btc_misprice', model_prob: 0.471429 }, { stats: cold });
+  const coldGap = place({
+    sector: 'btc_misprice',
+    model_prob: 0.645,
+    ask: 0.55,
+    limit_price: 0.55,
+    bid: 0.54
+  }, { stats: cold });
   assert.equal(coldGap.code, 'edge');
   const coldSoft = place({ sector: 'btc_misprice', model_prob: 0.43 }, { stats: cold });
-  assert.equal(coldSoft.code, 'exploratory');
-  assert.equal(coldSoft.sizeUsd, 1);
+  assert.equal(coldSoft.code, 'model_floor');
 
-  const soft = { sector: 'btc_misprice', model_prob: 0.43, ask: 0.4, limit_price: 0.4, slug: 'cpc-btc-updown-15m-demo' };
+  const soft = {
+    sector: 'btc_misprice',
+    model_prob: 0.64,
+    ask: 0.50,
+    limit_price: 0.50,
+    bid: 0.49,
+    slug: 'cpc-btc-updown-15m-demo'
+  };
   const stale = place(soft, {
     bboAsOf: WED_OPEN,
     quote: {
-      yesAsk: 0.4,
+      yesAsk: 0.50,
       spread: 0.01,
       depthUsd: 40,
       observedAt: new Date(WED_OPEN.getTime() - 46_000).toISOString()
     }
   });
   assert.equal(stale.action, 'place');
-  assert.equal(stale.code, 'exploratory');
-  assert.equal(stale.order_kind, 'exploratory');
-  assert.equal(stale.sizeUsd, 1);
+  assert.equal(stale.code, 'pass');
+  assert.equal(stale.order_kind, 'normal');
+  assert.equal(stale.sizeUsd, 2);
   const empty = place(soft, {
     quote: { yesAsk: 0.4, spread: 0.01, depthUsd: 0, observedAt: WED_OPEN.toISOString() }
   });
@@ -495,10 +513,10 @@ test('exploratory $1 stays inside the soft band and hard gates still skip', () =
     }
   });
   assert.equal(braked.code, 'sector_brake');
-  const reserveOk = place(soft, { buyingPower: 16 });
+  const reserveOk = place(soft, { buyingPower: 17 });
   assert.equal(reserveOk.action, 'place');
-  assert.equal(reserveOk.sizeUsd, 1);
-  const reserveFail = place(soft, { buyingPower: 15.5 });
+  assert.equal(reserveOk.sizeUsd, 2);
+  const reserveFail = place(soft, { buyingPower: 16.5 });
   assert.equal(reserveFail.code, 'cash_reserve');
   const fullReserve = place({ sector: 'btc_misprice', model_prob: 0.6, slug: 'cpc-btc-updown-15m-demo' }, { buyingPower: 16 });
   assert.equal(fullReserve.code, 'cash_reserve');

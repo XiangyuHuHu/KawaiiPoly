@@ -1,7 +1,7 @@
 /**
- * Polymarket US scan rules from SCAN_SPEC v3.2.
- * v3.2 replaces the v3 confirm-before-order flow and the v3.1 live/edge numbers.
- * Scanners write SIGNAL files. They never place orders.
+ * Polymarket US scan rules from SCAN_SPEC v3.3.
+ * v3.2 replaced the v3 confirm-before-order flow. v3.3 tightens BTC misprice
+ * after the 2026-10-15..17 settlements. Scanners write SIGNAL files and never place orders.
  * The bot may send the limit order without another chat confirmation.
  */
 
@@ -10,7 +10,9 @@ import {
   US_BBO_FUTURE_TOLERANCE_MS,
   US_BBO_MAX_AGE_MS,
   US_BBO_QUIET_MOVE,
+  US_BTC_MISPRICE_MAX_EDGE,
   US_BTC_MISPRICE_MAX_PRICE,
+  US_BTC_MISPRICE_MIN_MODEL,
   US_BTC_MISPRICE_MIN_PRICE,
   US_BTC_MISPRICE_MODEL_WEIGHT,
   US_EDGE_BTC_MISPRICE,
@@ -20,7 +22,7 @@ import {
   US_EXPLORATORY_SIZE_USD
 } from './constants.js';
 
-export const US_SPEC_VERSION = '3.2';
+export const US_SPEC_VERSION = '3.3';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
 export const US_GATEWAY_ORIGIN = 'https://gateway.polymarket.us/v1';
@@ -44,6 +46,10 @@ export const US_RULES = Object.freeze({
     nonBtcNonLive: 0.03,
     // 与 constants.US_EDGE_BTC_MISPRICE 同一常量。只覆盖 BTC 15m / 1h 错价。
     btcMisprice: US_EDGE_BTC_MISPRICE,
+    btcMispriceMaxEdge: US_BTC_MISPRICE_MAX_EDGE,
+    btcMispriceMinModel: US_BTC_MISPRICE_MIN_MODEL,
+    // BTC 错价不打试探单。Live 盘中仍用下面的 [2pp, 4pp)。
+    btcMispriceExploratory: false,
     exploratorySizeUsd: US_EXPLORATORY_SIZE_USD,
     exploratoryMinEdge: US_EXPLORATORY_MIN_EDGE,
     exploratoryMaxEdge: US_EXPLORATORY_MAX_EDGE,
@@ -52,9 +58,9 @@ export const US_RULES = Object.freeze({
     btcMispriceMinPrice: US_BTC_MISPRICE_MIN_PRICE,
     btcMispriceMaxPrice: US_BTC_MISPRICE_MAX_PRICE,
     btcMispriceRequiresFreshBbo: true,
-    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。45 秒内不看波动。
+    // 与 constants.US_BBO_MAX_AGE_MS 同一常量。30 秒内不看波动。
     bboMaxAgeMs: US_BBO_MAX_AGE_MS,
-    // 超过 5 分钟一律过期。45 秒到 5 分钟之间，波动不超过 2¢ 仍新鲜。
+    // 超过 3 分钟一律过期。30 秒到 3 分钟之间，波动不超过 2¢ 仍新鲜。
     bboAbsurdAgeMs: US_BBO_ABSURD_AGE_MS,
     bboQuietMove: US_BBO_QUIET_MOVE,
     bboFutureToleranceMs: US_BBO_FUTURE_TOLERANCE_MS,
@@ -161,8 +167,8 @@ export const US_SECTORS = Object.freeze(Object.keys(US_RULES.dailyCaps));
  */
 /**
  * 正常仓：edge 达到正式门槛（含冷板块 ×1.5）。
- * 试探仓：只给 BTC 错价和 Live 盘中，edge 在 [2pp, 4pp)。
- * 其余情况跳过。4pp 本身是正常仓，不是试探。
+ * 试探仓：只给仍允许的板块（Live 盘中），edge 在 [2pp, 4pp)。
+ * BTC 错价调用方必须传 eligible=false。其余情况跳过。4pp 本身是正常仓，不是试探。
  */
 export function exploratoryOrderKind({ edge, fullMinEdge, eligible }) {
   if (edge == null || !Number.isFinite(edge)) return 'skip';
@@ -191,9 +197,33 @@ function finitePrice(value) {
 }
 
 /**
+ * BTC 错价在价格带之后共用的模型 / edge 判定。
+ * 扫描 evaluateUsSignal 和下单 evaluateUsSignal 都走这里，避免门槛再分叉。
+ * 返回 reason：model_floor、edge_cap、edge，或 null（可以下正常仓）。
+ */
+export function classifyBtcMisprice({ modelProb, pricedEdge, fullMinEdge } = {}) {
+  if (modelProb == null || !(Number(modelProb) + 1e-12 >= US_BTC_MISPRICE_MIN_MODEL)) {
+    return { orderKind: 'skip', reason: 'model_floor' };
+  }
+  if (pricedEdge == null || !Number.isFinite(Number(pricedEdge))) {
+    return { orderKind: 'skip', reason: 'edge' };
+  }
+  if (Number(pricedEdge) - US_BTC_MISPRICE_MAX_EDGE > 1e-12) {
+    return { orderKind: 'skip', reason: 'edge_cap' };
+  }
+  const orderKind = exploratoryOrderKind({
+    edge: Number(pricedEdge),
+    fullMinEdge,
+    eligible: false
+  });
+  if (orderKind === 'skip') return { orderKind: 'skip', reason: 'edge' };
+  return { orderKind, reason: null };
+}
+
+/**
  * 扫描 emit 和下单 recheck 共用。
- * 45 秒内直接新鲜。45 秒到 5 分钟：卖价和中间价的变动都不超过 2¢ 仍新鲜。
- * 超过 5 分钟、报价变动超过 2¢、没有年龄、或采样超前超过 2 秒，算过期。
+ * 30 秒内直接新鲜。30 秒到 3 分钟：卖价和中间价的变动都不超过 2¢ 仍新鲜。
+ * 超过 3 分钟、报价变动超过 2¢、没有年龄、或采样超前超过 2 秒，算过期。
  * 没有缓存 Age 的调用方应先把年龄写成 0，再进来。
  */
 export function bboIsFresh({
