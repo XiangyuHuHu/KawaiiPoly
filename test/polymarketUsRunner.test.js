@@ -61,7 +61,7 @@ test('dry-run turns a pending SIGNAL into an order payload and does not call fet
   const ledger = await readFile(join(dir, 'real-orders.jsonl'), 'utf8');
   const row = JSON.parse(ledger.trim());
   assert.equal(row.venue, 'polymarket_us');
-  assert.equal(row.spec, 'v3.2');
+  assert.equal(row.spec, 'v3.3');
   assert.equal(row.dry_run, true);
   assert.equal(row.amount_usd, 2);
   assert.equal(row.order_kind, 'normal');
@@ -257,7 +257,7 @@ test('trade refreshes BBO before the 45s gate and ignores a stale scan timestamp
   const row = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
   assert.equal(row.model_p, 0.7);
   assert.equal(row.market_p, 0.495);
-  assert.equal(row.p_used, 0.6385);
+  assert.equal(row.p_used, 0.6078);
   assert.equal(row.entry, 0.5);
 });
 
@@ -546,7 +546,7 @@ test('a BBO response with no Age header still places', async () => {
   assert.equal(report.placed, 1);
 });
 
-test('a soft BTC edge places a $1 exploratory order and logs the kind', async () => {
+test('a coin-flip BTC edge is skipped instead of a $1 exploratory order', async () => {
   const { dir, config } = await fixture();
   await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify({
     id: 'btc_misprice:cpc-btc-updown-15m-2026-10-16-1515z:up',
@@ -565,15 +565,13 @@ test('a soft BTC edge places a $1 exploratory order and logs the kind', async ()
     status: 'pending'
   })}\n`);
   const report = await runPolymarketUsCycle({ config, now: NOW, fetchQuotes: false });
-  assert.equal(report.results[0].code, 'exploratory');
-  assert.equal(report.results[0].order_kind, 'exploratory');
-  assert.equal(report.results[0].sizeUsd, 1);
-  assert.equal(report.placed, 1);
-  const row = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
-  assert.equal(row.order_kind, 'exploratory');
-  assert.equal(row.amount_usd, 1);
+  assert.equal(report.results[0].code, 'model_floor');
+  assert.equal(report.results[0].action, 'skip');
+  assert.equal(report.placed, 0);
+  await assert.rejects(readFile(join(dir, 'real-orders.jsonl'), 'utf8'));
   const health = JSON.parse(await readFile(join(dir, 'us-health.json'), 'utf8'));
-  assert.equal(health.results[0].order_kind, 'exploratory');
+  assert.equal(health.results[0].code, 'model_floor');
+  assert.equal(health.placed, 0);
 });
 
 test('macro yes and no use book depth when liquidity_usd is null', async () => {

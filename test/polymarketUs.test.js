@@ -69,7 +69,7 @@ test('US and international endpoints stay separate', () => {
   assert.equal(config.polymarketUs.perTradeConfirm, false);
   assert.equal(config.polymarketUs.dryRun, true);
   assert.equal(config.polymarketUs.liveTradingEnabled, false);
-  assert.match(String(config.polymarketUs.specVersion), /3\.2/);
+  assert.match(String(config.polymarketUs.specVersion), /3\.3/);
   assert.throws(
     () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
     /refuses international/
@@ -136,17 +136,17 @@ test('gateway reads markets, bbo, and book without Gamma', async () => {
   assert.equal(calls.some((url) => url.includes('gamma-api') || url.includes('clob.polymarket.com')), false);
 });
 
-test('v3.2 standing auto-order, edge, size, and sector caps', () => {
+test('v3.3 standing auto-order, edge, size, and sector caps', () => {
   const signal = evaluateUsSignal(passing());
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
   assert.equal(signal.signal.size_usd, 2);
   assert.equal(signal.signal.order_kind, 'normal');
-  assert.equal(signal.signal.edge, 0.1035);
+  assert.equal(signal.signal.edge, 0.0802);
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
-  assert.equal(signal.signal.p_used, 0.6535);
-  assert.equal(signal.signal.spec_version, '3.2');
+  assert.equal(signal.signal.p_used, 0.6303);
+  assert.equal(signal.signal.spec_version, '3.3');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
   assert.equal(signal.signal.auto_order.per_trade_confirm, false);
@@ -188,34 +188,42 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
     bid: 0.23
   })).reason, 'price-band');
   assert.equal(evaluateUsSignal(passing({
-    modelProb: 0.70,
-    ask: 0.25,
-    bid: 0.24
+    modelProb: 0.56,
+    ask: 0.35,
+    bid: 0.34
   })).ok, true);
   assert.equal(evaluateUsSignal(passing({
-    modelProb: 0.90,
-    ask: 0.75,
-    bid: 0.74
+    modelProb: 0.80,
+    ask: 0.65,
+    bid: 0.64
   })).ok, true);
   assert.equal(evaluateUsSignal(passing({
-    modelProb: 0.90,
-    ask: 0.76,
-    bid: 0.75
+    modelProb: 0.80,
+    ask: 0.66,
+    bid: 0.65
   })).reason, 'price-band');
-  const softBtc = evaluateUsSignal(passing({
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.52,
+    ask: 0.45,
+    bid: 0.44
+  })).reason, 'model-floor');
+  assert.equal(evaluateUsSignal(passing({
+    modelProb: 0.90,
+    ask: 0.40,
+    bid: 0.39
+  })).reason, 'edge-cap');
+  const nearMiss = evaluateUsSignal(passing({
     modelProb: 0.56,
     ask: 0.52,
     bid: 0.51
   }));
-  assert.equal(softBtc.ok, true);
-  assert.equal(softBtc.signal.order_kind, 'exploratory');
-  assert.equal(softBtc.signal.size_usd, 1);
-  assert.equal(softBtc.signal.edge, 0.0265);
+  assert.equal(nearMiss.ok, false);
+  assert.equal(nearMiss.reason, 'edge');
   assert.equal(evaluateUsSignal(passing({
     modelProb: 0.52,
     ask: 0.50,
     bid: 0.49
-  })).reason, 'edge');
+  })).reason, 'model-floor');
   assert.equal(evaluateUsSignal(passing({
     confidence: 0,
     modelProb: 0.70,
@@ -309,14 +317,17 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.2');
+  assert.equal(US_RULES.specVersion, '3.3');
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);
-  assert.equal(US_BTC_MISPRICE_MODEL_WEIGHT, 0.7);
+  assert.equal(US_RULES.edge.btcMispriceMaxEdge, 0.15);
+  assert.equal(US_RULES.edge.btcMispriceMinModel, 0.56);
+  assert.equal(US_RULES.edge.btcMispriceExploratory, false);
+  assert.equal(US_BTC_MISPRICE_MODEL_WEIGHT, 0.55);
   assert.equal(US_RULES.edge.btcMispriceModelWeight, US_BTC_MISPRICE_MODEL_WEIGHT);
-  assert.equal(US_BTC_MISPRICE_MIN_PRICE, 0.25);
-  assert.equal(US_BTC_MISPRICE_MAX_PRICE, 0.75);
+  assert.equal(US_BTC_MISPRICE_MIN_PRICE, 0.35);
+  assert.equal(US_BTC_MISPRICE_MAX_PRICE, 0.65);
   assert.equal(US_RULES.edge.btcMispriceMinPrice, US_BTC_MISPRICE_MIN_PRICE);
   assert.equal(US_RULES.edge.btcMispriceMaxPrice, US_BTC_MISPRICE_MAX_PRICE);
   assert.equal(US_PRICE_MIN, 0.15);
@@ -324,7 +335,7 @@ test('v3.2 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(US_RULES.edge.standardMinPrice, US_PRICE_MIN);
   assert.equal(US_RULES.edge.standardMaxPrice, US_PRICE_MAX);
   assert.equal(US_RULES.edge.bboMaxAgeMs, US_BBO_MAX_AGE_MS);
-  assert.equal(US_BBO_MAX_AGE_MS, 45_000);
+  assert.equal(US_BBO_MAX_AGE_MS, 30_000);
   assert.equal(US_RULES.edge.liveInGame, 0.04);
   assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
   assert.equal(US_RULES.edge.momentumDistanceBps, 4);
@@ -551,7 +562,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
     assert.equal(modest.signals.length, 1);
     assert.equal(modest.signals[0].sector, 'btc_misprice');
     assert.equal(modest.signals[0].confidence, 'Med');
-    assert.equal(modest.signals[0].edge, 0.0685);
+    assert.equal(modest.signals[0].edge, 0.0527);
     const coinFlip = btcCandidatesFromContext({
       ...context,
       signal: {
@@ -566,12 +577,8 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       mispriceStats: emptyStats(),
       momentumStats: emptyStats()
     });
-    assert.equal(coinFlip.signals.length, 1);
-    assert.equal(coinFlip.signals[0].order_kind, 'exploratory');
-    assert.equal(coinFlip.signals[0].size_usd, 1);
-    assert.equal(coinFlip.signals[0].side, 'Up');
-    assert.equal(coinFlip.signals[0].edge, 0.0335);
-    assert.equal(coinFlip.skipped.includes('edge'), true);
+    assert.equal(coinFlip.signals.length, 0);
+    assert.equal(coinFlip.skipped.includes('model-floor'), true);
     const tooFlat = btcCandidatesFromContext({
       ...context,
       signal: {
@@ -587,7 +594,7 @@ test('session scan writes one US signal and skips the opposite momentum', async 
       momentumStats: emptyStats()
     });
     assert.equal(tooFlat.signals.length, 0);
-    assert.equal(tooFlat.skipped.includes('edge'), true);
+    assert.equal(tooFlat.skipped.includes('model-floor'), true);
     assert.equal(modest.skipped.includes('confidence'), false);
 
     const noModel = btcCandidatesFromContext({
@@ -846,7 +853,7 @@ test('nightly digest is one Chinese line and ignores paper or Gamma rows', async
   }
 });
 
-test('a soft BTC window keeps one exploratory side, and a full momentum signal wins over it', () => {
+test('a soft BTC window no longer emits misprice, and a full momentum signal still places', () => {
   const context = {
     market: {
       slug: 'cpc-btc-updown-15m-2026-10-14-1530z',
@@ -882,9 +889,10 @@ test('a soft BTC window keeps one exploratory side, and a full momentum signal w
     momentumStats: emptyStats()
   });
   assert.equal(soft.signals.length, 1);
-  assert.equal(soft.signals[0].sector, 'btc_misprice');
+  assert.equal(soft.signals[0].sector, 'momentum');
   assert.equal(soft.signals[0].order_kind, 'exploratory');
   assert.equal(soft.signals[0].size_usd, 1);
+  assert.equal(soft.skipped.includes('edge'), true);
   const fullMomentum = btcCandidatesFromContext({
     ...context,
     signal: { confidence: 0.7, probabilities: { up: 0.56 }, indicators: { bodyPct: 0.0006 } },

@@ -184,8 +184,8 @@ test('btc misprice sector keys normalize before win-rate and daily fills', async
 });
 
 test('cold edge and BBO age are the same for scan and trade', () => {
-  assert.equal(US_BBO_MAX_AGE_MS, 45_000);
-  assert.equal(US_BBO_ABSURD_AGE_MS, 300_000);
+  assert.equal(US_BBO_MAX_AGE_MS, 30_000);
+  assert.equal(US_BBO_ABSURD_AGE_MS, 180_000);
   assert.equal(US_BBO_QUIET_MOVE, 0.02);
   assert.equal(US_RULES.edge.bboMaxAgeMs, US_BBO_MAX_AGE_MS);
   assert.equal(US_RULES.edge.bboAbsurdAgeMs, US_BBO_ABSURD_AGE_MS);
@@ -204,7 +204,7 @@ test('cold edge and BBO age are the same for scan and trade', () => {
   assert.equal(buildPolymarketUsConfig({}).bboMaxAgeMs, US_BBO_MAX_AGE_MS);
   const example = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
   const sample = example.match(/^#?\s*POLYMARKET_US_BBO_MAX_AGE_MS=(\d+)\s*$/m);
-  assert.equal(Number(sample?.[1]), 45_000);
+  assert.equal(Number(sample?.[1]), 30_000);
   assert.equal(Number(sample?.[1]), US_BBO_MAX_AGE_MS);
 
   const coldStats = { weather: { samples: 10, winRate: 0.4, streakLosses: 0 } };
@@ -304,15 +304,17 @@ test('cold edge and BBO age are the same for scan and trade', () => {
     };
     assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.64 })).ok, true);
     assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.56 })).reason, 'edge');
+    assert.equal(evaluateScan(scanInput({ ...scanEdge, modelProb: 0.52 })).reason, 'model-floor');
     assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.64, bid: 0.54 })).action, 'place');
     assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.56, bid: 0.54 })).code, 'edge');
+    assert.equal(trade(tradeSignal({ ...tradeEdge, model_prob: 0.52, bid: 0.54 })).code, 'model_floor');
     assert.equal(
       evaluateScan(scanInput({ ...scanEdge, modelProb: 0.64 })).signal.edge,
-      0.0615
+      0.0473
     );
     assert.equal(
       trade(tradeSignal({ ...tradeEdge, model_prob: 0.64, bid: 0.54 })).edge,
-      0.0615
+      0.0473
     );
   }
 

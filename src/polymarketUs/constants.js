@@ -1,9 +1,10 @@
 /**
- * SCAN_SPEC v3.2（2026-10-15）里必须执行的数字。
+ * SCAN_SPEC v3.3（2026-10-18）里必须执行的数字。
+ * v3.2 的日帽、现金保留、非 BTC 门槛仍在。BTC 错价按已结算样本收紧。
  * 扫描器可以改文案；下单以这里的常量为准。
  */
 
-export const US_SPEC_VERSION = 'v3.2';
+export const US_SPEC_VERSION = 'v3.3';
 export const US_LINE_ID = 'polymarket_us';
 
 export const US_GATEWAY_BASE = 'https://gateway.polymarket.us';
@@ -45,11 +46,25 @@ export const US_LOSS_STREAK = 3;
 /** 冷板块 edge 不用加 0.02。SCAN_SPEC v3.2 把门槛乘 1.5，见 rules.js cleanerEdgeFloor。 */
 
 export const US_EDGE_STANDARD = 0.03;
-/** BTC 15m / 1h 错价最低 edge（4pp）。扫描 rules.edge.btcMisprice 与下单重检共用这一常量。 */
+/**
+ * BTC 15m / 1h 错价最低 edge（4pp）。扫描 rules.edge.btcMisprice 与下单重检共用这一常量。
+ * 不把下限抬到 6pp 或 8pp：已结算里 edge ≥ 15pp 的错价是 0 胜 5 负，抬下限会留下更差的那一截。
+ */
 export const US_EDGE_BTC_MISPRICE = 0.04;
 /**
- * 周末试探单。BTC 错价和 Live 盘中的 edge 落在 [2pp, 4pp) 时下 $1，不把这一轮扫空。
- * 4pp 起仍是正常仓。低于 2pp 继续跳过。冷板块正式门槛仍是 4pp×1.5，4pp–6pp 不是试探带。
+ * BTC 错价 edge 上限（15pp）。模型停在硬币附近、卖价却便宜很多时，quoted edge 是逆向选择，不是优势。
+ * 有记录的 edge ≥ 0.15 全部亏损；三笔错价赢单的 edge 在 0.109–0.146。
+ */
+export const US_BTC_MISPRICE_MAX_EDGE = 0.15;
+/**
+ * 买入方向的模型概率下限。已结算错价的 model_p 落在 0.4828–0.5361，没有一笔 ≥ 0.55。
+ * 0.56 在这团硬币概率之上，模型公式本身可以到 0.90。
+ */
+export const US_BTC_MISPRICE_MIN_MODEL = 0.56;
+/**
+ * 试探单 $1 只留给 Live 盘中 edge [2pp, 4pp) 和动量距离 [2, 4) bps。
+ * BTC 错价不再试探：板块胜率约 20%，2–4pp 比已经在亏的正式单更弱。
+ * 4pp 起仍是错价正常仓。低于 2pp 的 Live 继续跳过。冷板块正式门槛仍是 4pp×1.5，4pp–6pp 不是试探带。
  */
 export const US_EXPLORATORY_SIZE_USD = 1;
 export const US_EXPLORATORY_MIN_EDGE = 0.02;
@@ -57,15 +72,14 @@ export const US_EXPLORATORY_MAX_EDGE = US_EDGE_BTC_MISPRICE;
 /** 动量距离试探带 [2, 4) bps。4 bps 起仍是正常仓。低于 2 bps 继续跳过。 */
 export const US_EXPLORATORY_MIN_DISTANCE_BPS = 2;
 /**
- * BTC 错价把模型概率向该方向的盘口中间价收缩后再要求 4pp。
- * p_used = 0.7 * model + 0.3 * market_mid。
- * 0.5/0.5 配合 0.35–0.65 之后，扫描几乎都停在 price-band，没有新成交。
- * 0.7 是事先放宽的权重，不是用已结算的几笔拟合出来的。
+ * BTC 错价把模型概率向该方向的盘口中间价收缩后再要求 4pp，并不得超过 15pp。
+ * p_used = 0.55 * model + 0.45 * market_mid。
+ * v3.2 的 0.7 是事先放宽、不是用结算拟合的。结算里市场比 ~0.50 的模型更准，所以把权重从 0.7 收到 0.55。
  */
-export const US_BTC_MISPRICE_MODEL_WEIGHT = 0.7;
-/** BTC 错价买入价 0.25–0.75。 */
-export const US_BTC_MISPRICE_MIN_PRICE = 0.25;
-export const US_BTC_MISPRICE_MAX_PRICE = 0.75;
+export const US_BTC_MISPRICE_MODEL_WEIGHT = 0.55;
+/** BTC 错价买入价 0.35–0.65。0.25–0.35 的便宜边在结算里几乎全亏。 */
+export const US_BTC_MISPRICE_MIN_PRICE = 0.35;
+export const US_BTC_MISPRICE_MAX_PRICE = 0.65;
 /** 某板块最近 10 笔已结算胜率低于 35% 且已实现盈亏为负时，停开新单 24 小时。 */
 export const US_SECTOR_BRAKE_TRADES = 10;
 export const US_SECTOR_BRAKE_WIN_RATE = 0.35;
@@ -82,16 +96,17 @@ export const US_MOMENTUM_MAX_PRICE = 0.88;
 export const US_MOMENTUM_TRIGGER_SCALE = 0.5;
 export const US_MAX_SPREAD = 0.03;
 /**
- * BTC 错价 BBO 时钟新鲜窗口 45 秒（45000 ms）。
+ * BTC 错价 BBO 时钟新鲜窗口 30 秒（30000 ms）。
  * 这个窗口内不看价格波动。rules.edge.bboMaxAgeMs、config 默认值、扫描 emit 与下单 recheck 都引用这一常量。
+ * v3.2 是 45 秒。10 月 17 日多笔亏损是 API 已判 stale_bbo 之后的浏览器补单，这里只收紧代码路径，不恢复浏览器补单。
  */
-export const US_BBO_MAX_AGE_MS = 45_000;
+export const US_BBO_MAX_AGE_MS = 30_000;
 /**
- * 超过 45 秒、不超过 5 分钟：卖价和中间价相对信号的波动在 US_BBO_QUIET_MOVE 以内仍算新鲜。
- * 超过 5 分钟，即使报价没动也是过期。小幅波动不算过期。
+ * 超过 30 秒、不超过 3 分钟：卖价和中间价相对信号的波动在 US_BBO_QUIET_MOVE 以内仍算新鲜。
+ * 超过 3 分钟，即使报价没动也是过期。小幅波动不算过期。v3.2 的安静窗口是 5 分钟。
  */
-export const US_BBO_ABSURD_AGE_MS = 5 * 60 * 1000;
-/** 2¢。超过 45 秒后，卖价或中间价的变动大于这个幅度才算报价变了。 */
+export const US_BBO_ABSURD_AGE_MS = 3 * 60 * 1000;
+/** 2¢。超过 30 秒后，卖价或中间价的变动大于这个幅度才算报价变了。 */
 export const US_BBO_QUIET_MOVE = 0.02;
 /** 采样时间比现在超前超过 2 秒，不当作刚收到的报价。 */
 export const US_BBO_FUTURE_TOLERANCE_MS = 2_000;
