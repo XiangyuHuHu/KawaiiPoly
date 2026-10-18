@@ -20,16 +20,16 @@ import { buildPolymarketPaperPlan3 } from './src/polymarketPlan3.js';
 import { buildPolymarketPaperPlan3_6, PLAN3_6_LIVE_TIMEFRAMES } from './src/polymarketPlan3_6.js';
 import { buildPolymarketPaperPlan11 } from './src/polymarketPlan11.js';
 import { buildPolymarketPaperPlan14, evaluatePlan14Entry, rankPlan14Views, PLAN14_PREVIOUS_VERSION, PLAN14_PROFIT_EXPERIMENT_VERSION } from './src/polymarketPlan14.js';
-import { evaluatePlan15Candidate } from './src/polymarketPlan15.js';
-import { parsePlan16Question, selectPlan16Buys, ensembleYesProbability } from './src/polymarketPlan16.js';
+import { evaluatePlan15Candidate, plan15CategoryPaused } from './src/polymarketPlan15.js';
+import { parsePlan16Question, plan16PaperMinAsk, selectPlan16Buys, ensembleYesProbability } from './src/polymarketPlan16.js';
 import { stationFromDescription } from './src/plan16Stations.js';
 import { fetchPlan16Ensemble } from './src/plan16Forecast.js';
 import { PLAN17_COINS, plan17MarketDataSkipReason, createPlan17FailureLogger, parsePlan17Market, plan17IvSkipReason, plan17KellyStake, selectPlan17Buys } from './src/polymarketPlan17.js';
 import { fetchPlan17Dvol, fetchPlan17Spot } from './src/plan17MarketData.js';
 import { evaluatePlan18Event, plan18ShortSlug } from './src/polymarketPlan18.js';
 import { PLAN20_BOOK_PRESCREEN, plan20ExecutableQuotes, plan20QuotesFromGamma } from './src/polymarketPlan20.js';
-import { evaluatePlan21 } from './src/polymarketPlan21.js';
-import { evaluatePlan22, plan22InputsFromSignal } from './src/polymarketPlan22.js';
+import { evaluatePlan21, plan21PaperOrderUsd, plan21ReevalStatus } from './src/polymarketPlan21.js';
+import { evaluatePlan22, plan22InputsFromSignal, plan22ResolveSpotQuoteMs } from './src/polymarketPlan22.js';
 import { PAPER_DISABLE_PLAN_IDS } from './src/config.js';
 import {
   blendPlan5LockStrengthStats,
@@ -4618,12 +4618,20 @@ async function runPlan15PaperScan() {
       now: Date.now(),
       minPrice: Number(pm.plan15MinPrice) || 0.40,
       maxPrice: Number(pm.plan15MaxPrice) || 0.70,
+      tightMinPrice: Number(pm.plan15TightMinPrice) || 0.55,
+      tightMaxPrice: Number(pm.plan15TightMaxPrice) || 0.70,
+      tightCategories: pm.plan15TightCategories,
+      pausedCategories: pm.plan15PausedCategories,
       maxSpread: Number(pm.plan15MaxSpread) || 0.05,
       maxDays: Number(pm.plan15MaxDays) || 2,
       minVolume24hr: Number(pm.plan15MinVolume24hr) || 1000
     };
     const candidates = [];
     for (const category of PREDICTION_CATEGORIES) {
+      if (plan15CategoryPaused(category.id, pm.plan15PausedCategories)) {
+        skips.push(`${category.id}: paused`);
+        continue;
+      }
       let events = [];
       try {
         const tags = [category.tag, ...(category.fallbackTags || [])];
@@ -4716,7 +4724,7 @@ async function runPlan15PaperScan() {
     const categoryText = Object.entries(boughtByCategory).map(([label, count]) => `${label} ${count}`).join(' · ');
     const reason = bought.length
       ? `本轮买入 ${bought.length} 笔${categoryText ? ` · ${categoryText}` : ''}`
-      : `本轮没有 40–70¢ 且 2 天内结算的窄价差事件（${skips.slice(0, 3).join(', ') || '无候选'}）`;
+      : `本轮没有符合价格带的窄价差事件（电竞/宏观约 55–70¢，天气暂停；${skips.slice(0, 3).join(', ') || '无候选'}）`;
     await polymarketTrading.notePlan15Scan({ reason, bought: bought.length });
     return { bought: bought.length };
   } finally {
@@ -4859,14 +4867,22 @@ async function runPlan16PaperScan() {
       const tokenId = String(raw?.asset_id || raw?.assetId || raw?.token_id || raw?.tokenId || '');
       if (tokenId) bookByToken.set(tokenId, normalizeOrderBook(raw));
     }
+    const blockLowTail = pm.plan16BlockLowTail !== false;
+    const lowTailMax = Number(pm.plan16LowTailMax) || 0.30;
     const gates = {
-      minAsk: Number(pm.plan16MinAsk) || 0.08,
+      minAsk: plan16PaperMinAsk({
+        minAsk: Number(pm.plan16MinAsk) || 0.08,
+        blockLowTail,
+        lowTailMax
+      }),
       maxAsk: Number(pm.plan16MaxAsk) || 0.80,
       maxSpread: Number(pm.plan16MaxSpread) || 0.06,
       minEdge,
       minMembers,
       maxDays: Number(pm.plan16MaxDays) || 2,
-      feeRate: Number(pm.plan16FeeRate) || 0.07
+      feeRate: Number(pm.plan16FeeRate) || 0.07,
+      blockLowTail,
+      lowTailMax
     };
     const picks = selectPlan16Buys({
       rows: shortlist.map((row) => ({
@@ -5285,7 +5301,7 @@ async function runPlan21PaperScan() {
   const bought = [];
   try {
     const pm = config.polymarket;
-    const usd = Math.max(1, Number(pm.plan21OrderUsd) || 5);
+    const usd = plan21PaperOrderUsd(pm.plan21OrderUsd);
     const bucket = polymarketTrading.getBucket('plan21');
     if ((Number(bucket.portfolio?.cash) || 0) + 0.005 < usd) {
       if (bucket.auto?.lastReason !== '现金不足') await polymarketTrading.notePlan21Scan({ reason: '现金不足', bought: 0 });
@@ -5318,7 +5334,8 @@ async function runPlan21PaperScan() {
         upBook: bookByToken.get(tokens[upIndex]),
         downBook: bookByToken.get(tokens[downIndex]),
         endMs,
-        maxSpread: Number(pm.plan21MaxSpread) || 0.04
+        maxSpread: Number(pm.plan21MaxSpread) || 0.04,
+        maxEntryPrice: pm.plan21MaxEntryPrice
       });
       if (!decision.ok) {
         if (decision.reason !== 'outside_window') skips.push(`${event.slug} ${decision.reason}`);
@@ -5359,13 +5376,17 @@ async function runPlan21PaperScan() {
       bought.push(order);
       console.log(`Polymarket plan21 paper order: ${order.symbol} ${order.outcome} $${order.usd} at ${order.limitPrice} · window ${decision.windowMinutes}m`);
     }
-    if (bought.length || skips.length) {
-      const reason = bought.length
+    const reeval = plan21ReevalStatus(
+      polymarketTrading.getBucket('plan21').paperOrders,
+      pm.plan21ReevalWindows
+    );
+    if (bought.length || skips.length || reeval.due) {
+      const reason = `${bought.length
         ? `本轮买入落后方 ${bought.length} 笔 · ${bought.map((order) => `${order.symbol} ${order.outcome} $${order.usd}`).join(' · ')}`
-        : `本轮未下单（${skips.join('，')}）`;
-      await polymarketTrading.notePlan21Scan({ reason, bought: bought.length });
+        : `本轮未下单（${skips.join('，') || '无候选'}）`} ${reeval.note}`;
+      await polymarketTrading.notePlan21Scan({ reason, bought: bought.length, reeval });
     }
-    return { bought: bought.length };
+    return { bought: bought.length, reeval };
   } finally {
     plan21ScanRunning = false;
   }
@@ -5412,7 +5433,6 @@ async function runPlan22PaperScan() {
     const symbols = pm.plan22Symbols?.length ? pm.plan22Symbols : ['BTC', 'ETH'];
     const slugs = symbols.map((symbol) => plan18ShortSlug(symbol, '15m')).filter((slug) => slug && !held.has(slug));
     if (!slugs.length) return { bought: 0 };
-    const nowMs = Date.now();
     const snapshots = new Map();
     await Promise.all(symbols.map(async (symbol) => {
       const pair = `${symbol}-USD`;
@@ -5421,18 +5441,23 @@ async function runPlan22PaperScan() {
           publicMarket.getCandles(pair, '15m', 80),
           publicMarket.getQuotes([pair])
         ]);
+        const receivedAtMs = Date.now();
         const quote = quotes?.results?.[0];
         const spot = Number(quote?.price);
-        const spotQuoteMs = Date.parse(quote?.timestamp || '');
+        const spotQuoteMs = plan22ResolveSpotQuoteMs({
+          parsedQuoteMs: Date.parse(quote?.timestamp || ''),
+          receivedAtMs,
+          maxClockSkewMs: Number(pm.plan22MaxSpotClockSkewMs) || 5000
+        });
         const signal = buildIntervalSignal({
           symbol: pair,
           candles,
           currentPrice: spot,
-          currentQuoteTime: quote?.timestamp || null,
-          now: new Date(nowMs)
+          currentQuoteTime: quote?.timestamp || new Date(receivedAtMs).toISOString(),
+          now: new Date(receivedAtMs)
         });
         const inputs = plan22InputsFromSignal(signal, spotQuoteMs);
-        if (inputs) snapshots.set(symbol, inputs);
+        if (inputs) snapshots.set(symbol, { ...inputs, receivedAtMs });
       } catch (error) {
         snapshots.set(symbol, { error: error.message });
       }
@@ -5463,11 +5488,18 @@ async function runPlan22PaperScan() {
         skips.push(`${event.slug} ${snap?.error || 'no_kline'}`);
         continue;
       }
+      const decisionNowMs = Date.now();
       const decision = evaluatePlan22({
         ...snap,
         startMs,
         endMs,
-        nowMs,
+        nowMs: decisionNowMs,
+        spotQuoteMs: plan22ResolveSpotQuoteMs({
+          parsedQuoteMs: snap.spotQuoteMs,
+          receivedAtMs: snap.receivedAtMs,
+          nowMs: decisionNowMs,
+          maxClockSkewMs: Number(pm.plan22MaxSpotClockSkewMs) || 5000
+        }),
         upBook: bookByToken.get(tokens[upIndex]),
         downBook: bookByToken.get(tokens[downIndex]),
         marketSlug: String(market?.slug || event.slug),
@@ -5479,6 +5511,7 @@ async function runPlan22PaperScan() {
         maxSpread: Number(pm.plan22MaxSpread),
         minSpotDistanceBps: Number(pm.plan22MinSpotDistanceBps),
         maxSpotAgeMs: Number(pm.plan22MaxSpotAgeMs),
+        maxSpotClockSkewMs: Number(pm.plan22MaxSpotClockSkewMs) || 5000,
         minEdgeAfterFee: Number(pm.plan22MinEdgeAfterFee),
         feeRate: Number(pm.plan22FeeRate) || 0.07
       });

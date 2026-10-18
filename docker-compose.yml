@@ -500,6 +500,7 @@ services:
       POLYMARKET_PLAN14_PROFIT_EXPERIMENT_ENABLED: "true"
       POLYMARKET_PLAN14_ENABLED: "true"
       # 2026-10-11 停新开仓：6.4 万条快照回测，盘口比现货/K 线模型准，扣费后无优势。已有订单照常结算。
+      # 2026-10-18 不在旧规则下扩币种、周期或仓位。中价带要新样本时走单独的纸面对照，不打开这里。
       POLYMARKET_PLAN14_NEW_ENTRIES_ENABLED: "false"
       POLYMARKET_PLAN14_SYMBOLS: BTC-USD,ETH-USD,SOL-USD,XRP-USD
       POLYMARKET_PLAN14_TIMEFRAMES: 5m
@@ -519,12 +520,17 @@ services:
       POLYMARKET_PLAN14_RISK_STOP_LOSS_PCT: 0.25
       POLYMARKET_PLAN14_MAX_SAME_DIRECTION_ENTRIES_PER_SLOT: 4
       POLYMARKET_PLAN14_VALUE_EXIT_MARGIN: 0.01
-      # Plan15 — 市场扩展事件盘，独立 $500 模拟账本。40–70¢、2 天内、持有到官方结果。禁止实盘。
+      # Plan15 — 市场扩展事件盘，独立 $500 模拟账本。持有到官方结果。禁止实盘。
+      # 2026-10-18：电竞/宏观收到约 55–70¢；天气暂停新仓。其他类目仍用 40–70¢。
       POLYMARKET_PLAN15_ENABLED: "true"
       POLYMARKET_PLAN15_NEW_ENTRIES_ENABLED: "true"
       POLYMARKET_PLAN15_STARTING_CASH: 500
       POLYMARKET_PLAN15_MIN_PRICE: 0.40
       POLYMARKET_PLAN15_MAX_PRICE: 0.70
+      POLYMARKET_PLAN15_TIGHT_CATEGORIES: esports,finance
+      POLYMARKET_PLAN15_TIGHT_MIN_PRICE: 0.55
+      POLYMARKET_PLAN15_TIGHT_MAX_PRICE: 0.70
+      POLYMARKET_PLAN15_PAUSED_CATEGORIES: weather
       POLYMARKET_PLAN15_MAX_SPREAD: 0.05
       POLYMARKET_PLAN15_MAX_DAYS: 2
       POLYMARKET_PLAN15_MIN_VOLUME_24HR: 1000
@@ -533,9 +539,12 @@ services:
       POLYMARKET_PLAN15_MAX_NEW_PER_SCAN: 0
       POLYMARKET_PLAN15_LOOP_MS: 60000
       # Plan16 — Open-Meteo 集合预报对机场温度盘。独立 $500，扣费后优势至少 8¢ 才买。禁止实盘。
-      # 2026-10-11 停新开仓：30 天 1438 个事件回测，盘口比前一日预报准，组合后无增益。已有订单照常结算。
+      # 2026-10-11 旧规则停新开仓。2026-10-18 不扩大旧规则：仓位和笔数上限不变，
+      # 只在中价带收集新样本。0–30¢ 尾部硬过滤。历史 minAsk 0.08 留给对照，不靠它放行尾巴。
       POLYMARKET_PLAN16_ENABLED: "true"
-      POLYMARKET_PLAN16_NEW_ENTRIES_ENABLED: "false"
+      POLYMARKET_PLAN16_NEW_ENTRIES_ENABLED: "true"
+      POLYMARKET_PLAN16_BLOCK_LOW_TAIL: "true"
+      POLYMARKET_PLAN16_LOW_TAIL_MAX: "0.30"
       POLYMARKET_PLAN16_STARTING_CASH: 500
       POLYMARKET_PLAN16_MIN_ASK: 0.08
       POLYMARKET_PLAN16_MAX_ASK: 0.80
@@ -548,10 +557,9 @@ services:
       POLYMARKET_PLAN16_MAX_NEW_PER_SCAN: 8
       POLYMARKET_PLAN16_LOOP_MS: 60000
       POLYMARKET_PLAN16_FEE_RATE: 0.07
-      # Plan17 — Deribit DVOL 隐含波动率对 BTC/ETH 碰线日盘（主）和收盘高于盘（对照）。
-      # 按真实卖价 + taker 费，扣费后优势 ≥10¢ 才买，持有到官方结算。独立 $500。禁止实盘。
-      POLYMARKET_PLAN17_ENABLED: "true"
-      POLYMARKET_PLAN17_NEW_ENTRIES_ENABLED: "true"
+      # Plan17 — 2026-10-18 移出活跃纸面。已有订单照常结算，不新开仓。禁止实盘。
+      POLYMARKET_PLAN17_ENABLED: "false"
+      POLYMARKET_PLAN17_NEW_ENTRIES_ENABLED: "false"
       POLYMARKET_PLAN17_STARTING_CASH: 500
       POLYMARKET_PLAN17_MIN_EDGE: 0.10
       POLYMARKET_PLAN17_MIN_ASK: 0.03
@@ -593,10 +601,9 @@ services:
       POLYMARKET_PLAN18_RETENTION_DAYS: 35
       POLYMARKET_PLAN18_MIN_CASH_USD: 100
       POLYMARKET_PLAN18_AUTO_TOP_UP_USD: 500
-      # Plan19 — 随机对照组之二：同一套盘口与起卦时刻，但用小六壬（大安/速喜/小吉为吉）决定方向。
-      # 和 Plan18 同时跑，可以直接比较两种卦法；两者都应落在 −3% 附近。本金给 $1500 以撑过 Plan17 的 3 周观察期。禁止实盘。
-      POLYMARKET_PLAN19_ENABLED: "true"
-      POLYMARKET_PLAN19_NEW_ENTRIES_ENABLED: "true"
+      # Plan19 — 2026-10-18 退出活跃纸面。Plan18 继续做随机对照。已有订单照常结算。禁止实盘。
+      POLYMARKET_PLAN19_ENABLED: "false"
+      POLYMARKET_PLAN19_NEW_ENTRIES_ENABLED: "false"
       POLYMARKET_PLAN19_STARTING_CASH: 1500
       POLYMARKET_PLAN19_TIMEFRAMES: "5m,15m,1h"
       POLYMARKET_PLAN19_SYMBOLS: "BTC,ETH,SOL,XRP"
@@ -612,13 +619,14 @@ services:
       POLYMARKET_PLAN19_RETENTION_DAYS: 35
       POLYMARKET_PLAN19_MIN_CASH_USD: 100
       POLYMARKET_PLAN19_AUTO_TOP_UP_USD: 500
-      # Plan21 — 5 分钟盘中段买落后的一边。只做回测里扣费后为正的三格：
-      # 还剩约 4 分钟且卖一 20–35¢，还剩约 3 分钟且 10–20¢，还剩约 2 分钟且 10–35¢。
-      # 样本只有约 36 小时，按真实卖一成交，持有到官方结算。禁止实盘。
+      # Plan21 — BTC/ETH 5 分钟，小纸面仓，卖一必须 ≤30¢。持有到官方结算。禁止实盘。
+      # 覆盖约 100 个窗口后复评。这个门槛只写在状态里，到了也不自动停。
       POLYMARKET_PLAN21_ENABLED: "true"
       POLYMARKET_PLAN21_NEW_ENTRIES_ENABLED: "true"
       POLYMARKET_PLAN21_STARTING_CASH: 500
       POLYMARKET_PLAN21_ORDER_USD: 5
+      POLYMARKET_PLAN21_MAX_ENTRY_PRICE: 0.30
+      POLYMARKET_PLAN21_REEVAL_WINDOWS: 100
       POLYMARKET_PLAN21_MAX_SPREAD: 0.04
       POLYMARKET_PLAN21_SYMBOLS: "BTC,ETH"
       POLYMARKET_PLAN21_LOOP_MS: 15000

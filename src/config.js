@@ -68,6 +68,22 @@ function buildHourlyMonitorConfig(predictionRecords) {
   };
 }
 
+const PLAN14_FROZEN_SYMBOLS = Object.freeze(['BTC-USD', 'ETH-USD', 'SOL-USD', 'XRP-USD']);
+
+function frozenPlan14Symbols() {
+  const parsed = parseList(
+    process.env.POLYMARKET_PLAN14_SYMBOLS,
+    PLAN14_FROZEN_SYMBOLS.join(',')
+  ).filter((symbol) => PLAN14_FROZEN_SYMBOLS.includes(symbol));
+  return parsed.length ? parsed : [...PLAN14_FROZEN_SYMBOLS];
+}
+
+function cappedPaperUsd(value, fallback, cap) {
+  const n = Number(value);
+  const usd = Number.isFinite(n) && n > 0 ? n : fallback;
+  return Math.min(cap, Math.max(1, usd));
+}
+
 function resolvePolymarketOrderUsdAtBase() {
   if (process.env.POLYMARKET_ORDER_USD_AT_BASE) {
     return Number(process.env.POLYMARKET_ORDER_USD_AT_BASE);
@@ -76,12 +92,13 @@ function resolvePolymarketOrderUsdAtBase() {
 }
 
 /** 算卦对照组（Plan18 梅花 / Plan19 小六壬）共用的一组配置，按 env 前缀读取。 */
-function divinationPlanConfig(planId, envPrefix) {
+function divinationPlanConfig(planId, envPrefix, { defaultEnabled = true } = {}) {
   const env = (suffix) => process.env[`${envPrefix}_${suffix}`];
   const num = (suffix, fallback) => Number(env(suffix) || fallback);
+  const enabled = defaultEnabled ? env('ENABLED') !== 'false' : env('ENABLED') === 'true';
   return {
-    [`${planId}Enabled`]: env('ENABLED') !== 'false',
-    [`${planId}NewEntriesEnabled`]: env('NEW_ENTRIES_ENABLED') === 'true',
+    [`${planId}Enabled`]: enabled,
+    [`${planId}NewEntriesEnabled`]: enabled && env('NEW_ENTRIES_ENABLED') === 'true',
     [`${planId}StartingCash`]: num('STARTING_CASH', 500),
     [`${planId}Timeframes`]: String(env('TIMEFRAMES') || '5m,15m,1h')
       .split(',').map((item) => item.trim()).filter((item) => ['5m', '15m', '1h'].includes(item)),
@@ -899,10 +916,10 @@ function buildPolymarketConfig() {
     plan14ProfitExperimentEnabled: process.env.POLYMARKET_PLAN14_PROFIT_EXPERIMENT_ENABLED !== 'false',
     // Adverse cents per share, applied only to independent $10 paper experiment fills.
     plan14ProfitExperimentLatencyPenaltyCents: Number(process.env.POLYMARKET_PLAN14_PROFIT_EXPERIMENT_LATENCY_PENALTY_CENTS || 0),
-    plan14Symbols: parseList(
-      process.env.POLYMARKET_PLAN14_SYMBOLS,
-      'BTC-USD,ETH-USD,SOL-USD,XRP-USD'
-    ),
+    // 2026-10-18: do not expand Plan14 under the old rules. Symbols stay inside the
+    // frozen four, timeframes stay 5m, and new entries stay opt-in.
+    plan14OldRuleExpansion: false,
+    plan14Symbols: frozenPlan14Symbols(),
     plan14Timeframes: ['5m'],
     plan14StreakSizingEnabled: process.env.POLYMARKET_PLAN14_STREAK_SIZING_ENABLED === 'true',
     plan14MinElapsedPct: Number(process.env.POLYMARKET_PLAN14_MIN_ELAPSED_PCT || 0.10),
@@ -942,6 +959,13 @@ function buildPolymarketConfig() {
     plan15MaxSpread: Number(process.env.POLYMARKET_PLAN15_MAX_SPREAD || 0.05),
     plan15MaxDays: Number(process.env.POLYMARKET_PLAN15_MAX_DAYS || 2),
     plan15MinVolume24hr: Number(process.env.POLYMARKET_PLAN15_MIN_VOLUME_24HR || 1000),
+    // Esports and macro (finance) ask band. Other categories keep min/max above.
+    plan15TightCategories: String(process.env.POLYMARKET_PLAN15_TIGHT_CATEGORIES || 'esports,finance')
+      .split(',').map((item) => item.trim().toLowerCase()).filter(Boolean),
+    plan15TightMinPrice: Number(process.env.POLYMARKET_PLAN15_TIGHT_MIN_PRICE || 0.55),
+    plan15TightMaxPrice: Number(process.env.POLYMARKET_PLAN15_TIGHT_MAX_PRICE || 0.70),
+    plan15PausedCategories: String(process.env.POLYMARKET_PLAN15_PAUSED_CATEGORIES || 'weather')
+      .split(',').map((item) => item.trim().toLowerCase()).filter(Boolean),
     plan15OrderUsd: Number(process.env.POLYMARKET_PLAN15_ORDER_USD || 5),
     plan15MaxTradeBankrollPct: Number(process.env.POLYMARKET_PLAN15_MAX_TRADE_BANKROLL_PCT ?? 0.05),
     plan15MaxOpenExposureBankrollPct: Number(process.env.POLYMARKET_PLAN15_MAX_OPEN_EXPOSURE_BANKROLL_PCT ?? 0.30),
@@ -959,19 +983,29 @@ function buildPolymarketConfig() {
     plan16Enabled: process.env.POLYMARKET_PLAN16_ENABLED !== 'false',
     plan16NewEntriesEnabled: process.env.POLYMARKET_PLAN16_NEW_ENTRIES_ENABLED === 'true',
     plan16StartingCash: Number(process.env.POLYMARKET_PLAN16_STARTING_CASH || 500),
+    // Control floor stays 0.08 so a later plan16b contrast is not rewritten.
+    // The paper tail block below is what rejects asks <= 0.30.
     plan16MinAsk: Number(process.env.POLYMARKET_PLAN16_MIN_ASK || 0.08),
     plan16MaxAsk: Number(process.env.POLYMARKET_PLAN16_MAX_ASK || 0.80),
     plan16MaxSpread: Number(process.env.POLYMARKET_PLAN16_MAX_SPREAD || 0.06),
     plan16MinEdge: Number(process.env.POLYMARKET_PLAN16_MIN_EDGE || 0.08),
     plan16MinMembers: Number(process.env.POLYMARKET_PLAN16_MIN_MEMBERS || 20),
     plan16MaxDays: Number(process.env.POLYMARKET_PLAN16_MAX_DAYS || 2),
-    plan16OrderUsd: Number(process.env.POLYMARKET_PLAN16_ORDER_USD || 5),
-    plan16MaxOpen: Number(process.env.POLYMARKET_PLAN16_MAX_OPEN || 30),
-    plan16MaxNewPerScan: Number(process.env.POLYMARKET_PLAN16_MAX_NEW_PER_SCAN || 8),
+    // Sample size stays at the old defaults. Do not expand stake or open count.
+    plan16OldRuleExpansion: false,
+    plan16OrderUsd: cappedPaperUsd(process.env.POLYMARKET_PLAN16_ORDER_USD, 5, 5),
+    plan16MaxOpen: Math.min(30, Math.max(1, Number(process.env.POLYMARKET_PLAN16_MAX_OPEN || 30) || 30)),
+    plan16MaxNewPerScan: Math.min(8, Math.max(1, Number(process.env.POLYMARKET_PLAN16_MAX_NEW_PER_SCAN || 8) || 8)),
+    plan16BlockLowTail: process.env.POLYMARKET_PLAN16_BLOCK_LOW_TAIL !== 'false',
+    // Cutoff stays 0.30. A lower env would reopen the 0–30¢ tail; a higher one would eat the mid-band sample.
+    plan16LowTailMax: 0.30,
+    plan16SampleOnly: true,
     plan16LoopMs: Number(process.env.POLYMARKET_PLAN16_LOOP_MS || 60000),
     plan16FeeRate: Number(process.env.POLYMARKET_PLAN16_FEE_RATE || 0.07),
-    plan17Enabled: process.env.POLYMARKET_PLAN17_ENABLED !== 'false',
-    plan17NewEntriesEnabled: process.env.POLYMARKET_PLAN17_NEW_ENTRIES_ENABLED === 'true',
+    // 2026-10-18: removed from the active paper list. Explicit true is required to start it again.
+    plan17Enabled: process.env.POLYMARKET_PLAN17_ENABLED === 'true',
+    plan17NewEntriesEnabled: process.env.POLYMARKET_PLAN17_ENABLED === 'true'
+      && process.env.POLYMARKET_PLAN17_NEW_ENTRIES_ENABLED === 'true',
     plan17StartingCash: Number(process.env.POLYMARKET_PLAN17_STARTING_CASH || 500),
     plan17MaxIvAgeMs: Number(process.env.POLYMARKET_PLAN17_MAX_IV_AGE_MS || 300000),
     plan17MinEdge: Number(process.env.POLYMARKET_PLAN17_MIN_EDGE || 0.10),
@@ -991,7 +1025,8 @@ function buildPolymarketConfig() {
     plan17MaxNewPerScan: Number(process.env.POLYMARKET_PLAN17_MAX_NEW_PER_SCAN || 6),
     plan17LoopMs: Number(process.env.POLYMARKET_PLAN17_LOOP_MS || 120000),
     plan17FeeRate: Number(process.env.POLYMARKET_PLAN17_FEE_RATE || 0.07),
-    // Plan20 is paper-only. Auto and the $500 book start only when the flag is true.
+    // Plan20 stays disabled. 2026-10-18: do not lower the .20-.35 / 12-16 thresholds.
+    // Mined survivors stay empty. Turning the flag on still matches only those rules.
     plan20Enabled: process.env.POLYMARKET_PLAN20_ENABLED === 'true',
     plan20NewEntriesEnabled: process.env.POLYMARKET_PLAN20_ENABLED === 'true',
     plan20StartingCash: Number(process.env.POLYMARKET_PLAN20_STARTING_CASH || 500),
@@ -1003,11 +1038,16 @@ function buildPolymarketConfig() {
     plan20LoopMs: Number(process.env.POLYMARKET_PLAN20_LOOP_MS || 60000),
     // Plan18（梅花易数）/ Plan19（小六壬）：算卦随机对照组，配置项同构。
     ...divinationPlanConfig('plan18', 'POLYMARKET_PLAN18'),
-    ...divinationPlanConfig('plan19', 'POLYMARKET_PLAN19'),
+    // Plan19 retired from the active paper list. Plan18 stays the random control.
+    ...divinationPlanConfig('plan19', 'POLYMARKET_PLAN19', { defaultEnabled: false }),
     plan21Enabled: process.env.POLYMARKET_PLAN21_ENABLED !== 'false',
     plan21NewEntriesEnabled: process.env.POLYMARKET_PLAN21_NEW_ENTRIES_ENABLED === 'true',
     plan21StartingCash: Number(process.env.POLYMARKET_PLAN21_STARTING_CASH || 500),
-    plan21OrderUsd: Number(process.env.POLYMARKET_PLAN21_ORDER_USD || 5),
+    plan21OrderUsd: cappedPaperUsd(process.env.POLYMARKET_PLAN21_ORDER_USD, 5, 5),
+    plan21MaxEntryPrice: Math.min(0.30, Number(process.env.POLYMARKET_PLAN21_MAX_ENTRY_PRICE || 0.30) || 0.30),
+    plan21ReevalWindows: Number(process.env.POLYMARKET_PLAN21_REEVAL_WINDOWS || 100) || 100,
+    // Documented gate only. There is no env that turns this into an automatic stop.
+    plan21AutoStopAtReeval: false,
     plan21MaxSpread: Number(process.env.POLYMARKET_PLAN21_MAX_SPREAD || 0.04),
     plan21Symbols: String(process.env.POLYMARKET_PLAN21_SYMBOLS || 'BTC,ETH')
       .split(',').map((item) => item.trim().toUpperCase()).filter((item) => ['BTC', 'ETH'].includes(item)),
@@ -1027,6 +1067,7 @@ function buildPolymarketConfig() {
     plan22MaxElapsedPct: Number(process.env.POLYMARKET_PLAN22_MAX_ELAPSED_PCT || (12 / 15)),
     plan22MinSpotDistanceBps: Number(process.env.POLYMARKET_PLAN22_MIN_SPOT_DISTANCE_BPS || 8),
     plan22MaxSpotAgeMs: Number(process.env.POLYMARKET_PLAN22_MAX_SPOT_AGE_MS || 15000),
+    plan22MaxSpotClockSkewMs: Number(process.env.POLYMARKET_PLAN22_MAX_SPOT_CLOCK_SKEW_MS || 5000),
     plan22FeeRate: Number(process.env.POLYMARKET_PLAN22_FEE_RATE || 0.07),
     plan22RandomControl: process.env.POLYMARKET_PLAN22_RANDOM_CONTROL === 'true',
     plan22Symbols: String(process.env.POLYMARKET_PLAN22_SYMBOLS || 'BTC,ETH')

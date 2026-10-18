@@ -50,21 +50,23 @@ POLYMARKET_PLAN22_ENABLED=true
 
 暂停新仓但保留账本：`POLYMARKET_PLAN22_NEW_ENTRIES_ENABLED=false`。关掉整个计划：去掉 `POLYMARKET_PLAN22_ENABLED` 或设成非 `true`。已有订单继续等官方结算。
 
-## 关掉 Plan17 / Plan18 / Plan19 / Plan20
+现货报价年龄用下单判断那一刻的时钟来算。以前扫描先记下 `Date.now()` 再去拉 Binance，报价戳比这个时钟更晚，`quoteMs > now` 被一律记成 `spot_age`，新鲜报价也下不了单。现在判断时重取时钟。报价最多超前 5 秒（`POLYMARKET_PLAN22_MAX_SPOT_CLOCK_SKEW_MS`）仍算新鲜；超前更多，或确实旧于 `POLYMARKET_PLAN22_MAX_SPOT_AGE_MS`，还是 `spot_age`。
 
-单个开关（历史订单和本金都留着，启动时若自动还开着会被关掉）：
+## 关掉 Plan17 / Plan19 / Plan20
+
+2026-10-18 之后 Plan17 和 Plan19 默认就不在活跃纸面里。Plan18 留着做随机对照，不要放进下面这组。Plan20 维持关闭，不要为了成交去放宽 `.20-.35` / `12-16`。
 
 ```bash
 POLYMARKET_PLAN17_ENABLED=false
-POLYMARKET_PLAN18_ENABLED=false
 POLYMARKET_PLAN19_ENABLED=false
 POLYMARKET_PLAN20_ENABLED=false
+POLYMARKET_PLAN18_ENABLED=true
 ```
 
-或者一次列出来：
+或者一次列出来（这三项仍可被这份名单关掉；Plan18 只有你明确写上才停）：
 
 ```bash
-POLYMARKET_PAPER_DISABLED_PLANS=plan17,plan18,plan19,plan20
+POLYMARKET_PAPER_DISABLED_PLANS=plan17,plan19,plan20
 ```
 
-这四项不在删除名单里。停自动不会清 `paperOrders`，也不会改 `startingCash`。
+停自动不会清 `paperOrders`，也不会改 `startingCash`。

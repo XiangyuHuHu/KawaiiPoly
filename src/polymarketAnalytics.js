@@ -80,9 +80,9 @@ function plan16PriceBand(price) {
 
 function plan21WindowLabel(order) {
   const minutes = Number(order.plan21Entry?.windowMinutes);
-  if (minutes === 4) return '还剩约 4 分钟 · 20–35¢';
+  if (minutes === 4) return '还剩约 4 分钟 · 20–30¢';
   if (minutes === 3) return '还剩约 3 分钟 · 10–20¢';
-  if (minutes === 2) return '还剩约 2 分钟 · 10–35¢';
+  if (minutes === 2) return '还剩约 2 分钟 · 10–30¢';
   return '未知窗口';
 }
 

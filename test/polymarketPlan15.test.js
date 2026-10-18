@@ -62,6 +62,58 @@ test('plan15 skips favorites above 70c and markets that end after 2 days', () =>
   assert.equal(distant.reason, 'horizon');
 });
 
+test('plan15 keeps sports in the wide band, tightens esports and macro, and pauses weather', () => {
+  const sports = evaluatePlan15Candidate({
+    market: market({ outcomePrices: '["0.46","0.54"]' }),
+    categoryId: 'sports',
+    now,
+    book: { bestBid: 0.44, bestAsk: 0.46 }
+  });
+  assert.equal(sports.ok, true);
+
+  const weather = evaluatePlan15Candidate({
+    market: market(),
+    categoryId: 'weather',
+    now,
+    book: { bestBid: 0.60, bestAsk: 0.62 }
+  });
+  assert.equal(weather.reason, 'category_paused');
+
+  const cheapEsports = evaluatePlan15Candidate({
+    market: market({ outcomePrices: '["0.52","0.48"]' }),
+    categoryId: 'esports',
+    now,
+    book: { bestBid: 0.50, bestAsk: 0.52 }
+  });
+  assert.equal(cheapEsports.reason, 'price_out_of_range');
+
+  const esports = evaluatePlan15Candidate({
+    market: market({ outcomePrices: '["0.62","0.38"]' }),
+    categoryId: 'esports',
+    now,
+    book: { bestBid: 0.60, bestAsk: 0.62 }
+  });
+  assert.equal(esports.ok, true);
+  assert.equal(esports.ask, 0.62);
+
+  const macro = evaluatePlan15Candidate({
+    market: market({ outcomePrices: '["0.50","0.50"]' }),
+    categoryId: 'macro',
+    now
+  });
+  assert.equal(macro.reason, 'price_out_of_range');
+
+  const loosened = evaluatePlan15Candidate({
+    market: market({ outcomePrices: '["0.52","0.48"]' }),
+    categoryId: 'finance',
+    now,
+    tightMinPrice: 0.40,
+    tightMaxPrice: 0.90,
+    book: { bestBid: 0.50, bestAsk: 0.52 }
+  });
+  assert.equal(loosened.reason, 'price_out_of_range');
+});
+
 test('plan15 skips a wide book and short-window crypto up/down', () => {
   const wide = evaluatePlan15Candidate({
     market: market(),

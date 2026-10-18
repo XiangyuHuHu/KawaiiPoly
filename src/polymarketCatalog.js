@@ -13,14 +13,14 @@ export const PREDICTION_CATEGORIES = [
     label: '电竞',
     tag: 'esports',
     tradable: 'paper',
-    why: '系列赛胜负有官方结果。Plan15 只买价差够窄、两周内结束的领先结果。'
+    why: '系列赛胜负有官方结果。Plan15 电竞只买 55–70¢、两天内结束的领先结果。'
   },
   {
     id: 'weather',
     label: '天气',
     tag: 'weather',
     tradable: 'paper',
-    why: '温度区间在观测截止后结算。Plan15 买领先结果。Plan16 用机场集合预报，只在扣费后仍高出盘口时买入。'
+    why: 'Plan15 暂停新的天气入场，已有订单照常结算。Plan16 只用中价带收集新样本，0–30¢ 尾部不买。'
   },
   {
     id: 'politics',
@@ -35,7 +35,7 @@ export const PREDICTION_CATEGORIES = [
     tag: 'finance',
     fallbackTags: ['business', 'economy'],
     tradable: 'paper',
-    why: '利率、财报、指数点位按官方结果结算。Plan15 与 5 分钟涨跌分开记账。'
+    why: '利率、财报、指数点位按官方结果结算。Plan15 宏观只买 55–70¢，与 5 分钟涨跌分开记账。'
   },
   {
     id: 'crypto',
