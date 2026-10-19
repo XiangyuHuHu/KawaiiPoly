@@ -16,7 +16,9 @@ v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位
 
 同一分钟、同一市场、同一方向只留一行。5 分钟任务和 15 分钟扫描撞在同一分钟时，后到的不重复写。Pinnacle、ESPN 或 BBO 失败只记在 `status/last-live-observe.json`，不让扫描退出。
 
-每个正在进行的 moneyline（含足球三个 `drawable_outcome` 胜负盘）写 Yes 和 No 两行，没有模型也写。
+每个正在进行的 moneyline（含足球三个 `drawable_outcome` 胜负盘）写 Yes 和 No 两行，没有模型也写，低于 0.60 的一侧也写。日志没有更高的模型地板。
+
+面向阈值研究的存储带是 `model_prob ≥ 0.60`（`US_LIVE_OBSERVE_MIN_MODEL`）。用户常在这一带买更高胜率的一侧，所以要从 0.60 起攒几天的 ROI，而不是只盯尾盘 0.88。`model_prob` 有值且 ≥ 0.60 时，`rule_pass.observe_band = true`，方便事后过滤。这面旗子不下单，也不改尾盘地板。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -28,7 +30,7 @@ v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位
 | `ask` / `bid` / `ask_depth` | 该方向卖价、买价、卖盘名义金额（价格 × 份额） |
 | `period` / `clock` / `score` | 美国站 `eventState` |
 | `phase` | `pregame` / `early` / `mid` / `late` / `endgame` |
-| `rule_pass` | 哪条规则过了或没过，以及原因。`would_signal_paper` 在这里 |
+| `rule_pass` | 哪条规则过了或没过，以及原因。`would_signal_paper`、`observe_band`（`model_prob ≥ 0.60`）在这里 |
 | `signal_id` | 已有 pending 信号才填，观察本身不写 SIGNAL |
 | `pinnacle_prob` / `espn_prob` / `score_sampled_at` / `score_age_ms` | 闸门和纸面标记用的附加字段 |
 
@@ -69,11 +71,11 @@ npm run us:live-analyze
 node scripts/analyze-live-observations.js [observations.jsonl] [settled.jsonl]
 ```
 
-网格是尾盘「model 门槛 × 价格帽」，每个市场×方向只取第一次满足的卖价，按 $1 计算 ROI。另外打印足球纸面那一截。
+默认网格是尾盘「model 门槛 × 价格帽」。门槛为 0.60、0.65、0.70、0.75、0.80、0.85、0.88、0.90、0.92、0.95，价格帽仍是 0.90、0.93、0.95、0.99。每个市场×方向只取第一次满足的卖价，按 $1 计算 ROI。另外打印足球纸面那一截。研究带从 0.60 起；真正下单的尾盘地板仍是 0.88 / 0.95。
 
 ## 回滚
 
 1. 关掉闸门：把 `src/polymarketUs/constants.js` 里的 `US_LIVE_ENDGAME_DIVERGENCE_ENABLED` 设为 `false`。地板 0.88 和价格帽 0.95 保持。扫描和下单都读这个常量。
 2. 停止记日志：去掉 `us:live-observe` 的 cron。`us:scan` 里的 `observeLive` 可以不传，现有扫描测试就是这样。已经写下的 jsonl 可以留着。
-3. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.4`，在 `rules.js` 是 `3.4`。退回 v3.3 时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameDivergence*` 与 `soccerPaper*`。
+3. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.4`，在 `rules.js` 是 `3.4`。退回 v3.3 时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameDivergence*`、`soccerPaper*` 与 `liveObserveMinModel`。`observe_band` 只是研究标记，删掉不影响已写下的 jsonl。
 4. BTC 门槛、`US_CASH_RESERVE_USD = 15`、日帽、板块刹车、胜率仓位都不要在这次回滚里动。

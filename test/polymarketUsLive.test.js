@@ -8,10 +8,15 @@ import {
   US_BTC_MISPRICE_MIN_MODEL,
   US_CASH_RESERVE_USD,
   US_DAILY_CAPS,
+  US_LIVE_ANALYZE_CAPS,
+  US_LIVE_ANALYZE_THRESHOLDS,
   US_LIVE_ENDGAME_DIVERGENCE,
   US_LIVE_ENDGAME_MAX_PRICE,
   US_LIVE_ENDGAME_MIN_MODEL,
-  US_SIZE_DEFAULT_USD
+  US_LIVE_OBSERVE_MIN_MODEL,
+  US_SIZE_DEFAULT_USD,
+  US_SOCCER_PAPER_MAX_PRICE,
+  US_SOCCER_PAPER_MIN_MODEL
 } from '../src/polymarketUs/constants.js';
 import { endgameDivergenceGate, soccerFavoritePaper } from '../src/polymarketUs/liveGate.js';
 import { classifyLivePhase } from '../src/polymarketUs/livePhase.js';
@@ -21,6 +26,7 @@ import {
   appendLiveObservations,
   buildLiveObservationRows,
   outcomeFromUsMarket,
+  rulePassForSide,
   runLiveObservations,
   settleLiveObservations
 } from '../src/polymarketUs/liveObserve.js';
@@ -42,6 +48,23 @@ test('BTC caps, cash reserve, and endgame floors stay put in v3.4', () => {
   assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
   assert.equal(US_RULES.edge.liveEndgameMaxPrice, 0.95);
   assert.equal(US_RULES.size.cashReserveUsd, 15);
+  assert.equal(US_LIVE_OBSERVE_MIN_MODEL, 0.60);
+  assert.equal(US_RULES.edge.liveObserveMinModel, 0.60);
+  assert.equal(US_SOCCER_PAPER_MIN_MODEL, 0.80);
+  assert.equal(US_SOCCER_PAPER_MAX_PRICE, 0.93);
+  assert.deepEqual([...US_LIVE_ANALYZE_THRESHOLDS], [0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.88, 0.90, 0.92, 0.95]);
+  assert.deepEqual([...US_LIVE_ANALYZE_CAPS], [0.90, 0.93, 0.95, 0.99]);
+});
+
+test('observe_band marks model_prob at or above 0.60 without changing the trade path', () => {
+  const at = rulePassForSide({ sport: 'nba', phase: 'mid', modelProb: 0.60, ask: 0.55 });
+  assert.equal(at.observe_band, true);
+  assert.equal(at.would_signal, false);
+  assert.equal(at.would_signal_paper, false);
+  const below = rulePassForSide({ sport: 'nba', phase: 'mid', modelProb: 0.599, ask: 0.55 });
+  assert.equal(below.observe_band, false);
+  const missing = rulePassForSide({ sport: 'nba', phase: 'mid', modelProb: null, ask: 0.55 });
+  assert.equal(missing.observe_band, false);
 });
 
 test('divergence gate skips a one-sided gap and sizes $1 only when both sources are missing', () => {
@@ -245,18 +268,22 @@ test('observation rows cover both sides, paper soccer, and a divergent endgame w
   assert.equal(yes.ask_depth, 70);
   assert.equal(yes.rule_pass.would_signal_paper, true);
   assert.equal(yes.rule_pass.would_signal, false);
+  assert.equal(yes.rule_pass.observe_band, true);
   assert.equal(yes.signal_id, 'live:atc-epl-tot-cov-2026-10-19-tot:yes');
   assert.equal(no.model_prob, 0.18);
+  assert.equal(no.rule_pass.observe_band, false);
   assert.equal(no.rule_pass.would_signal_paper, false);
   assert.equal(no.signal_id, null);
   const end = rows.find((row) => row.market_slug === 'aec-nfl-end' && row.side === 'Yes');
   assert.equal(end.phase, 'endgame');
   assert.equal(end.rule_pass.would_signal, false);
+  assert.equal(end.rule_pass.observe_band, true);
   assert.equal(end.rule_pass.endgame.reason, 'espn_missing');
   const quietYes = rows.find((row) => row.market_slug === 'aec-nhl-quiet' && row.side === 'Yes');
   assert.equal(quietYes.model_prob, null);
   assert.equal(quietYes.model_src, 'none');
   assert.equal(quietYes.ask, null);
+  assert.equal(quietYes.rule_pass.observe_band, false);
   assert.equal(soccerFavoritePaper({ sport: 'soccer', phase: 'endgame', pinnacleProb: 0.9, ask: 0.8 }).would_signal_paper, false);
 
   const root = await mkdtemp(join(tmpdir(), 'us-live-obs-'));
@@ -377,6 +404,9 @@ test('settle writes a separate file and the grid uses the first hit', async () =
     const winPnl = (1 - 0.8) / 0.8;
     assert.ok(Math.abs(grid[0].pnl - (winPnl - 1)) < 1e-9);
     assert.match(formatGrid(grid), /0\.88 0\.95 2/);
+    const defaults = observationGrid([], []);
+    assert.deepEqual([...new Set(defaults.map((row) => row.threshold))], [...US_LIVE_ANALYZE_THRESHOLDS]);
+    assert.deepEqual([...new Set(defaults.map((row) => row.cap))], [...US_LIVE_ANALYZE_CAPS]);
     const script = await new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [
         'scripts/analyze-live-observations.js',
