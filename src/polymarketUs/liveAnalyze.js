@@ -1,7 +1,13 @@
 /**
  * 从 live-observations.jsonl 和结算文件复现「门槛 × 价格帽」ROI 网格。
  * 每个市场×方向只取第一次满足条件的观察，按当时卖价买 $1。赢 (1-ask)/ask，输 -1。
+ * 默认门槛从 0.60 起，覆盖研究带；价格帽仍是 0.90 / 0.93 / 0.95 / 0.99。
  */
+
+import { US_LIVE_ANALYZE_CAPS, US_LIVE_ANALYZE_THRESHOLDS } from './constants.js';
+
+export const DEFAULT_OBSERVATION_THRESHOLDS = US_LIVE_ANALYZE_THRESHOLDS;
+export const DEFAULT_OBSERVATION_CAPS = US_LIVE_ANALYZE_CAPS;
 
 function finite(value) {
   const number = Number(value);
@@ -63,8 +69,8 @@ export function summarizePicks(picks, settledBySlug) {
 export function observationGrid(rows, settlements, {
   phase = 'endgame',
   sport = null,
-  thresholds = [0.80, 0.85, 0.88, 0.90, 0.92, 0.95],
-  caps = [0.90, 0.93, 0.95, 0.99]
+  thresholds = DEFAULT_OBSERVATION_THRESHOLDS,
+  caps = DEFAULT_OBSERVATION_CAPS
 } = {}) {
   const settledBySlug = settlements instanceof Map ? settlements : indexSettlements(settlements);
   const table = [];

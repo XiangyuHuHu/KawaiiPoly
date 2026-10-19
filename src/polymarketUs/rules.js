@@ -25,6 +25,7 @@ import {
   US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD,
   US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL,
   US_LIVE_ENDGAME_SCORE_MAX_AGE_MS,
+  US_LIVE_OBSERVE_MIN_MODEL,
   US_SOCCER_PAPER_MAX_PRICE,
   US_SOCCER_PAPER_MIN_MODEL,
   US_SOCCER_PAPER_PHASES
@@ -91,6 +92,8 @@ export const US_RULES = Object.freeze({
     soccerPaperMinModel: US_SOCCER_PAPER_MIN_MODEL,
     soccerPaperMaxPrice: US_SOCCER_PAPER_MAX_PRICE,
     soccerPaperPhases: US_SOCCER_PAPER_PHASES,
+    // 只标记观察研究带。尾盘下单仍看 liveEndgameMinModel。
+    liveObserveMinModel: US_LIVE_OBSERVE_MIN_MODEL,
     standardMinPrice: 0.15,
     standardMaxPrice: 0.85,
     maxSpreadCents: 3,

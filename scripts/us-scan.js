@@ -1,3 +1,9 @@
+import {
+  US_GATEWAY_OBSERVE_GAP_MS,
+  US_GATEWAY_RATE_LIMIT_BACKOFF_MS,
+  US_GATEWAY_TRADE_GAP_MS
+} from '../src/polymarketUs/constants.js';
+import { configureGatewayLimiter } from '../src/polymarketUs/gatewayLimit.js';
 import { defaultLoadWindow, refreshUsQuote, runUsScan } from '../src/polymarketUs/scan.js';
 import { runLiveObservations, settleLiveObservations } from '../src/polymarketUs/liveObserve.js';
 import { PublicMarketDataClient } from '../packages/kawaii-signal/publicMarketData.js';
@@ -5,6 +11,12 @@ import { runUsDigest } from '../src/polymarketUs/digest.js';
 import { PolymarketUsGateway } from '../src/polymarketUs/gateway.js';
 import { formatModelCounts, loadPublicModelReport } from '../src/polymarketUs/models.js';
 import { defaultLedgerRoot, defaultWorkspaceRoot, writeStatus } from '../src/polymarketUs/signals.js';
+
+configureGatewayLimiter({
+  tradeGapMs: US_GATEWAY_TRADE_GAP_MS,
+  observeGapMs: US_GATEWAY_OBSERVE_GAP_MS,
+  backoffMs: US_GATEWAY_RATE_LIMIT_BACKOFF_MS
+});
 
 const command = process.argv[2] || 'scan';
 const ledgerRoot = defaultLedgerRoot();

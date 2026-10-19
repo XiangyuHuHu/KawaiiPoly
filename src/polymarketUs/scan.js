@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { syncSectorBrakes } from './calibration.js';
 import { btcResolutionRisk, evaluateUsSignal, rankConfidenceScore, sidePolarity } from './evaluate.js';
 import { eventSlug } from './gateway.js';
+import { gatewayBackoffMs, isRateLimitError, noteGatewayRateLimit } from './gatewayLimit.js';
 import { US_RULES } from './rules.js';
 import { normalizeSector } from './shape.js';
 import {
@@ -18,6 +19,11 @@ import {
 } from './time.js';
 import { buildPolymarketIntervalSignal } from '../polymarketSignal.js';
 import { PublicMarketDataClient } from '../../packages/kawaii-signal/publicMarketData.js';
+
+function delay(ms) {
+  if (!(ms > 0)) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function finite(value) {
   if (value == null || value === '') return null;
@@ -371,17 +377,23 @@ export async function runUsScan({
   rules = US_RULES
 } = {}) {
   const session = describeSession(now, rules);
-  const liveTask = (observeLive ? Promise.resolve().then(() => observeLive({ now, ledgerRoot, rules })) : Promise.resolve({ appended: 0, skipped: true }))
-    .catch((error) => ({
-      appended: 0,
-      error: String(error?.message || error).slice(0, 160)
-    }));
+  const collectLive = async () => {
+    if (!observeLive) return { appended: 0, skipped: true };
+    try {
+      return await observeLive({ now, ledgerRoot, rules });
+    } catch (error) {
+      return {
+        appended: 0,
+        error: String(error?.message || error).slice(0, 160)
+      };
+    }
+  };
   const brakeSync = await syncSectorBrakes(ledgerRoot, now);
   const allowShort = ignoreWindow || session.btcShort;
   const allowLong = ignoreWindow || session.longDated;
   const allowSuite = ignoreWindow || session.fullSuite;
   if (!allowShort && !allowLong && !allowSuite) {
-    const liveObservations = await liveTask;
+    const liveObservations = await collectLive();
     await writeStatus(ledgerRoot, 'last-scan.json', {
       signal: false,
       reason: 'outside-window',
@@ -403,7 +415,19 @@ export async function runUsScan({
           skipped.push(`${timeframe}:missing`);
           continue;
         }
-        await writeStatus(ledgerRoot, 'last-scan.json', { signal: false, reason: 'gateway-error', message: error.message });
+        if (isRateLimitError(error)) {
+          noteGatewayRateLimit();
+          skipped.push(`${timeframe}:rate-limit`);
+          await delay(gatewayBackoffMs());
+          continue;
+        }
+        const liveObservations = await collectLive();
+        await writeStatus(ledgerRoot, 'last-scan.json', {
+          signal: false,
+          reason: 'gateway-error',
+          message: error.message,
+          liveObservations
+        });
         throw error;
       }
       if (!context?.market) {
@@ -447,6 +471,12 @@ export async function runUsScan({
             skipped.push(`${model.sector}:missing-us-price`);
             continue;
           }
+          if (isRateLimitError(error)) {
+            noteGatewayRateLimit();
+            skipped.push(`${model.sector}:rate-limit`);
+            await delay(gatewayBackoffMs());
+            continue;
+          }
           skipped.push(`${model.sector}:quote`);
           continue;
         }
@@ -482,7 +512,7 @@ export async function runUsScan({
       if (result.wrote) published.push(decision.signal);
     }
   }
-  const liveObservations = await liveTask;
+  const liveObservations = await collectLive();
   await writeStatus(ledgerRoot, 'last-scan.json', {
     signal: published.length > 0,
     published: published.map((signal) => signal.id),
