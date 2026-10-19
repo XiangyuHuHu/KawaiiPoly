@@ -1,10 +1,10 @@
 /**
- * SCAN_SPEC v3.3（2026-10-18）里必须执行的数字。
- * v3.2 的日帽、现金保留、非 BTC 门槛仍在。BTC 错价按已结算样本收紧。
+ * SCAN_SPEC v3.4（2026-10-19）里必须执行的数字。
+ * v3.3 的 BTC 错价、日帽、现金保留、仓位不变。v3.4 只加 Live 观察日志和尾盘分歧闸门。
  * 扫描器可以改文案；下单以这里的常量为准。
  */
 
-export const US_SPEC_VERSION = 'v3.3';
+export const US_SPEC_VERSION = 'v3.4';
 export const US_LINE_ID = 'polymarket_us';
 
 export const US_GATEWAY_BASE = 'https://gateway.polymarket.us';
@@ -88,6 +88,21 @@ export const US_EDGE_LIVE_INPLAY = 0.04;
 export const US_MODEL_PROB_CAP = 0.9;
 export const US_LIVE_ENDGAME_MIN_MODEL = 0.88;
 export const US_LIVE_ENDGAME_MAX_PRICE = 0.95;
+/**
+ * 尾盘 model − ask 大于这个数时，当作分歧而不是 edge。
+ * 两边模型都 ≥ US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL，且比分/时钟不超过 US_LIVE_ENDGAME_SCORE_MAX_AGE_MS，才按正常仓。
+ * 两个来源都没有：只下 US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD。其余情况跳过。
+ * 关掉闸门：把 US_LIVE_ENDGAME_DIVERGENCE_ENABLED 改成 false。地板 0.88 和价格帽 0.95 不动。
+ */
+export const US_LIVE_ENDGAME_DIVERGENCE = 0.10;
+export const US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL = 0.88;
+export const US_LIVE_ENDGAME_SCORE_MAX_AGE_MS = 60_000;
+export const US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD = 1;
+export const US_LIVE_ENDGAME_DIVERGENCE_ENABLED = true;
+/** 足球早/中/晚盘（75' 之前）Pinnacle 去水热门。只写观察日志，不下单。 */
+export const US_SOCCER_PAPER_MIN_MODEL = 0.80;
+export const US_SOCCER_PAPER_MAX_PRICE = 0.93;
+export const US_SOCCER_PAPER_PHASES = Object.freeze(['early', 'mid', 'late']);
 export const US_PRICE_MIN = 0.15;
 export const US_PRICE_MAX = 0.85;
 export const US_LIVE_INPLAY_MAX_PRICE = 0.95;

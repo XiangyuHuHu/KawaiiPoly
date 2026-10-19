@@ -1,0 +1,79 @@
+# Live 观察日志与尾盘分歧闸门（SCAN_SPEC v3.4）
+
+v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位。只做两件事：把正在进行的美国站胜负盘记下来，以及在尾盘规则上加分歧闸门。
+
+依据是 2026-10-19 对 175 场（10/12、10/13、10/17 PT）的回测：尾盘没有一组门槛是正 ROI；亏损集中在模型比卖价高出约 0.10 的单（例如模型 0.96、卖价 0.83）。唯一为正的一截是足球早/中盘热门（去水 ≥ 0.80、价格 ≤ 0.93，n=88，ROI +12%），先只记纸面。
+
+## 日志写在哪
+
+`$POLYMARKET_US_LEDGER_DIR/scans/live-observations.jsonl`。没设这个变量时也认 `$LEDGER_DIR`，默认 `/workspace/polymarket-ledger/scans/live-observations.jsonl`。
+
+`npm run us:scan` 每轮都会跑观察（和 15 分钟循环同一条）。比赛窗口里想更密，另跑：
+
+```cron
+*/5 * * * * cd /workspace && npm run us:live-observe
+```
+
+同一分钟、同一市场、同一方向只留一行。5 分钟任务和 15 分钟扫描撞在同一分钟时，后到的不重复写。Pinnacle、ESPN 或 BBO 失败只记在 `status/last-live-observe.json`，不让扫描退出。
+
+每个正在进行的 moneyline（含足球三个 `drawable_outcome` 胜负盘）写 Yes 和 No 两行，没有模型也写。
+
+| 字段 | 含义 |
+| --- | --- |
+| `ts_utc` | 观察时间 |
+| `market_slug` / `event_slug` | 市场与赛事 |
+| `sport` / `league` | 运动、系列（`seriesSlug`） |
+| `side` | `Yes` 或 `No` |
+| `model_prob` / `model_src` | 主模型。有 Pinnacle 去水用 `pinnacle_devig`，否则 ESPN 胜率 `espn_wp`，都没有则 `null` / `none` |
+| `ask` / `bid` / `ask_depth` | 该方向卖价、买价、卖盘名义金额（价格 × 份额） |
+| `period` / `clock` / `score` | 美国站 `eventState` |
+| `phase` | `pregame` / `early` / `mid` / `late` / `endgame` |
+| `rule_pass` | 哪条规则过了或没过，以及原因。`would_signal_paper` 在这里 |
+| `signal_id` | 已有 pending 信号才填，观察本身不写 SIGNAL |
+| `pinnacle_prob` / `espn_prob` / `score_sampled_at` / `score_age_ms` | 闸门和纸面标记用的附加字段 |
+
+相位：足球 0–29' 与半场为 early，30–59' 为 mid，60–74' 为 late，≥75' 为 endgame。橄榄球和 NBA 第 4 节或加时为 endgame。冰球第 3 节或加时为 endgame。棒球第 7 局起为 endgame。late 仍在尾盘之前。
+
+## 尾盘分歧闸门
+
+地板不动：`liveEndgameMinModel = 0.88`，`liveEndgameMaxPrice = 0.95`。扫描 `evaluateUsSignal` 和下单 `evaluateUsSignal` 走同一个 `endgameDivergenceGate`。
+
+只有 `model − ask > 0.10` 才进闸门（`US_LIVE_ENDGAME_DIVERGENCE`）：
+
+| 情况 | 动作 |
+| --- | --- |
+| ESPN 和 Pinnacle 都 ≥ 0.88，且比分/时钟年龄 ≤ 60 秒 | 正常仓（$2–$5） |
+| 两个来源都没有 | 只下 $1（`order_kind = divergence_micro`） |
+| 只有一边、有一边低于 0.88、或比分/时钟缺失或超过 60 秒 | 跳过 |
+
+选择的是跳过，不是把所有分歧都收成 $1。$1 只留给「模型数字在，但 ESPN 和 Pinnacle 都没附上」的手写信号，因为没法判断是分歧还是缺数据。观察日志里的主模型一定来自这两个来源之一，所以单源大分歧会记成跳过，不会变成 $1 单。
+
+比分时间用 `score_sampled_at`（美国站 `eventState.updatedAt`）。下单时用 `现在 − score_sampled_at`，不用扫描当时冻结的年龄。
+
+常量：`US_LIVE_ENDGAME_DIVERGENCE`、`US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL`、`US_LIVE_ENDGAME_SCORE_MAX_AGE_MS`、`US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD`。`rules.edge` 引用同一组。
+
+## 足球热门（纸面）
+
+去水 ≥ 0.80 且价格 ≤ 0.93，相位是 early、mid 或 late（也就是 75' 之前，含回测里的早盘和中盘）。只认 Pinnacle 去水，不认 ESPN。`rule_pass.would_signal_paper = true`，`would_signal` 仍为 false。观察器不调用 `publishUsSignal`，不下单。
+
+## 结算和网格
+
+`npm run us:settle` 在订单摘要之后，按市场 slug 向美国站网关补观察结果，写到单独文件：
+
+`$LEDGER_DIR/scans/live-observations-settled.jsonl`
+
+一行一个市场：`market_slug`、`yes_won`、`void`、`long_px`、`settled_at`。未结束的下次再问。不改观察日志本身。
+
+```bash
+npm run us:live-analyze
+node scripts/analyze-live-observations.js [observations.jsonl] [settled.jsonl]
+```
+
+网格是尾盘「model 门槛 × 价格帽」，每个市场×方向只取第一次满足的卖价，按 $1 计算 ROI。另外打印足球纸面那一截。
+
+## 回滚
+
+1. 关掉闸门：把 `src/polymarketUs/constants.js` 里的 `US_LIVE_ENDGAME_DIVERGENCE_ENABLED` 设为 `false`。地板 0.88 和价格帽 0.95 保持。扫描和下单都读这个常量。
+2. 停止记日志：去掉 `us:live-observe` 的 cron。`us:scan` 里的 `observeLive` 可以不传，现有扫描测试就是这样。已经写下的 jsonl 可以留着。
+3. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.4`，在 `rules.js` 是 `3.4`。退回 v3.3 时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameDivergence*` 与 `soccerPaper*`。
+4. BTC 门槛、`US_CASH_RESERVE_USD = 15`、日帽、板块刹车、胜率仓位都不要在这次回滚里动。

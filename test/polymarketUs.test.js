@@ -69,7 +69,7 @@ test('US and international endpoints stay separate', () => {
   assert.equal(config.polymarketUs.perTradeConfirm, false);
   assert.equal(config.polymarketUs.dryRun, true);
   assert.equal(config.polymarketUs.liveTradingEnabled, false);
-  assert.match(String(config.polymarketUs.specVersion), /3\.3/);
+  assert.match(String(config.polymarketUs.specVersion), /3\.4/);
   assert.throws(
     () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
     /refuses international/
@@ -136,7 +136,7 @@ test('gateway reads markets, bbo, and book without Gamma', async () => {
   assert.equal(calls.some((url) => url.includes('gamma-api') || url.includes('clob.polymarket.com')), false);
 });
 
-test('v3.3 standing auto-order, edge, size, and sector caps', () => {
+test('v3.4 standing auto-order, edge, size, and sector caps', () => {
   const signal = evaluateUsSignal(passing());
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
@@ -146,7 +146,7 @@ test('v3.3 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
   assert.equal(signal.signal.p_used, 0.6303);
-  assert.equal(signal.signal.spec_version, '3.3');
+  assert.equal(signal.signal.spec_version, '3.4');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
   assert.equal(signal.signal.auto_order.per_trade_confirm, false);
@@ -293,6 +293,63 @@ test('v3.3 standing auto-order, edge, size, and sector caps', () => {
     ask: 0.80,
     slug: 'tec-nba-early'
   })).reason, 'live-endgame-model');
+  const agreed = evaluateUsSignal(passing({
+    sector: 'live',
+    liveKind: 'endgame',
+    side: 'Yes',
+    timeframe: null,
+    windowId: null,
+    modelProb: 0.96,
+    ask: 0.84,
+    bid: 0.83,
+    slug: 'tec-nba-agree',
+    espnProb: 0.91,
+    pinnacleProb: 0.93,
+    scoreAgeMs: 20_000
+  }));
+  assert.equal(agreed.ok, true);
+  assert.equal(agreed.signal.order_kind, 'normal');
+  assert.equal(agreed.signal.size_usd, 2);
+  assert.equal(agreed.signal.espn_prob, 0.91);
+  assert.equal(evaluateUsSignal(passing({
+    sector: 'live',
+    liveKind: 'endgame',
+    side: 'Yes',
+    timeframe: null,
+    modelProb: 0.96,
+    ask: 0.84,
+    bid: 0.83,
+    slug: 'tec-nba-one-source',
+    pinnacleProb: 0.96,
+    scoreAgeMs: 10_000
+  })).reason, 'live-endgame-divergence');
+  assert.equal(evaluateUsSignal(passing({
+    sector: 'live',
+    liveKind: 'endgame',
+    side: 'Yes',
+    timeframe: null,
+    modelProb: 0.96,
+    ask: 0.84,
+    bid: 0.83,
+    slug: 'tec-nba-stale',
+    espnProb: 0.94,
+    pinnacleProb: 0.95,
+    scoreAgeMs: 90_000
+  })).reason, 'live-endgame-divergence');
+  const micro = evaluateUsSignal(passing({
+    sector: 'live',
+    liveKind: 'endgame',
+    side: 'Yes',
+    timeframe: null,
+    windowId: null,
+    modelProb: 0.96,
+    ask: 0.84,
+    bid: 0.83,
+    slug: 'tec-nba-blind'
+  }));
+  assert.equal(micro.ok, true);
+  assert.equal(micro.signal.order_kind, 'divergence_micro');
+  assert.equal(micro.signal.size_usd, 1);
 
   const inGame = evaluateUsSignal(passing({
     sector: 'live',
@@ -317,7 +374,7 @@ test('v3.3 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.3');
+  assert.equal(US_RULES.specVersion, '3.4');
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);

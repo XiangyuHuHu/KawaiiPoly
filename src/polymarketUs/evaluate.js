@@ -10,6 +10,7 @@ import {
   US_SPEC_VERSION
 } from './rules.js';
 import { US_EXPLORATORY_SIZE_USD } from './constants.js';
+import { endgameDivergenceGate, resolveScoreAgeMs } from './liveGate.js';
 import { normalizeSector } from './shape.js';
 
 function round4(value) {
@@ -214,6 +215,18 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   } else if (sector === 'live' && liveKind === 'endgame') {
     if (modelProb + 1e-12 < rules.edge.liveEndgameMinModel) return reject('live-endgame-model');
     if (ask - rules.edge.liveEndgameMaxPrice > 1e-9) return reject('live-endgame-price');
+    const gate = endgameDivergenceGate({
+      modelProb,
+      ask,
+      espnProb: input.espnProb ?? input.espn_prob,
+      pinnacleProb: input.pinnacleProb ?? input.pinnacle_prob,
+      scoreAgeMs: input.scoreAgeMs ?? input.score_age_ms,
+      scoreSampledAt: input.scoreSampledAt || input.score_sampled_at,
+      now: input.now,
+      rules
+    });
+    if (gate.action === 'skip') return reject('live-endgame-divergence');
+    if (gate.action === 'micro') orderKind = 'divergence_micro';
   } else if (sector === 'live') {
     if (ask + 1e-12 < rules.edge.liveInGameMinPrice || ask - rules.edge.liveInGameMaxPrice > 1e-9) {
       return reject('live-in-game-price');
@@ -249,7 +262,12 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const used = (finite(input.dailyFilled) || 0) + (finite(input.dailyPending) || 0);
   if (used >= rules.dailyCaps[sector]) return reject('daily-cap');
 
-  const sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.usd;
+  const microUsd = Number(rules.edge.liveEndgameDivergenceFallbackUsd);
+  const sizeUsd = orderKind === 'divergence_micro'
+    ? (Number.isFinite(microUsd) && microUsd > 0 ? microUsd : 1)
+    : orderKind === 'exploratory'
+      ? US_EXPLORATORY_SIZE_USD
+      : sizing.usd;
   if (depthUsd + 1e-9 < sizeUsd) return reject('depth');
 
   const buyingPower = finite(input.buyingPower);
@@ -267,6 +285,14 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     live_kind: sector === 'live' ? liveKind : null,
     live_phase: sector === 'live' ? liveKind : null,
     endgame: sector === 'live' && liveKind === 'endgame',
+    espn_prob: sector === 'live' ? finite(input.espnProb ?? input.espn_prob) : null,
+    pinnacle_prob: sector === 'live' ? finite(input.pinnacleProb ?? input.pinnacle_prob) : null,
+    score_sampled_at: sector === 'live' ? (input.scoreSampledAt || input.score_sampled_at || null) : null,
+    score_age_ms: sector === 'live' ? resolveScoreAgeMs({
+      scoreAgeMs: input.scoreAgeMs ?? input.score_age_ms,
+      scoreSampledAt: input.scoreSampledAt || input.score_sampled_at,
+      now: input.now
+    }) : null,
     slug,
     side,
     limit_price: round4(ask),
@@ -304,7 +330,8 @@ export function evaluateUsSignal(input, rules = US_RULES) {
       depth_usd: depthUsd,
       size_tier: sizing.tier,
       order_kind: orderKind,
-      cash_reserve_checked: buyingPower != null
+      cash_reserve_checked: buyingPower != null,
+      endgame_divergence: sector === 'live' && liveKind === 'endgame' ? orderKind : null
     }
   };
   return { ok: true, reason: null, signal };

@@ -46,6 +46,7 @@ import {
 } from './shape.js';
 import { blendModelToMarket, marketProbability, sectorBrakeReason } from './calibration.js';
 import { quoteForSide } from './gateway.js';
+import { endgameDivergenceGate } from './liveGate.js';
 import {
   bboIsFresh,
   classifyBtcMisprice,
@@ -269,7 +270,7 @@ function oppositeOpen(signal, side, openWindows) {
 }
 
 /**
- * 对一条 SIGNAL 做 v3.3 门控。不访问网络。
+ * 对一条 SIGNAL 做 v3.4 门控。不访问网络。
  * action: place | skip | defer
  */
 export function evaluateUsSignal(signal, context = {}) {
@@ -396,6 +397,25 @@ export function evaluateUsSignal(signal, context = {}) {
   if (executionPrice + 1e-9 < minPrice || executionPrice - 1e-9 > maxPrice) {
     return decision('skip', 'price_band', `价格 ${executionPrice} 不在 ${minPrice}–${maxPrice}。`, { ...base, status: 'skipped' });
   }
+  let divergence = null;
+  if (sector === 'live' && endgame) {
+    divergence = endgameDivergenceGate({
+      modelProb: model,
+      ask: executionPrice,
+      espnProb: signal?.espn_prob ?? signal?.espnProb,
+      pinnacleProb: signal?.pinnacle_prob ?? signal?.pinnacleProb,
+      scoreAgeMs: signal?.score_age_ms ?? signal?.scoreAgeMs,
+      scoreSampledAt: signal?.score_sampled_at ?? signal?.scoreSampledAt,
+      now,
+      rules: context.rules
+    });
+    if (divergence.action === 'skip') {
+      return decision('skip', 'endgame_divergence', `尾盘分歧 ${divergence.divergence} 未通过：${divergence.reason}。`, {
+        ...base,
+        status: 'skipped'
+      });
+    }
+  }
   let orderKind = 'normal';
   let exploratoryReason = null;
   if (sector === 'momentum') {
@@ -447,7 +467,12 @@ export function evaluateUsSignal(signal, context = {}) {
       exploratoryReason = `试探单 $1。edge ${edge} 在 2–4pp 软区间，未到正式门槛 ${minEdge}。`;
     }
   }
-  const sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.sizeUsd;
+  let sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.sizeUsd;
+  if (divergence?.action === 'micro') {
+    orderKind = 'divergence_micro';
+    sizeUsd = divergence.sizeUsd;
+    exploratoryReason = '尾盘分歧超过 0.10，ESPN 和 Pinnacle 都不可用，只下 $1。';
+  }
 
   const spread = readSpread(signal, quote);
   if (spread == null) {
@@ -522,7 +547,8 @@ export function evaluateUsSignal(signal, context = {}) {
     limitPrice: executionPrice,
     sizeUsd
   });
-  return decision('place', orderKind === 'exploratory' ? 'exploratory' : 'pass', exploratoryReason || '通过 v3.3 门控。', {
+  const placeCode = orderKind === 'exploratory' || orderKind === 'divergence_micro' ? orderKind : 'pass';
+  return decision('place', placeCode, exploratoryReason || '通过 v3.4 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,

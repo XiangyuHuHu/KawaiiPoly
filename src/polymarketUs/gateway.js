@@ -169,6 +169,13 @@ export class PolymarketUsGateway {
     });
   }
 
+  async listEvents(query = {}) {
+    const { data } = await this.request('/v1/events', query);
+    if (Array.isArray(data?.events)) return data.events;
+    if (Array.isArray(data)) return data;
+    return [];
+  }
+
   async listMarkets({
     endDateMin,
     endDateMax,

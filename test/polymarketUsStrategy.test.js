@@ -51,8 +51,8 @@ function place(overrides = {}, context = {}) {
   });
 }
 
-test('SCAN_SPEC v3.3 caps, edges, and momentum scale are constants', () => {
-  assert.equal(US_SPEC_VERSION, 'v3.3');
+test('SCAN_SPEC v3.4 caps, edges, and momentum scale are constants', () => {
+  assert.equal(US_SPEC_VERSION, 'v3.4');
   assert.deepEqual(US_DAILY_CAPS, {
     live: 10,
     momentum: 15,
@@ -546,6 +546,39 @@ test('live in-play uses 4pp up to 0.95 and endgame allows a high model', () => {
   });
   assert.equal(endgame.action, 'place');
   assert.equal(endgame.order.price.value, '0.90');
+  const divergent = place({
+    sector: 'live',
+    endgame: true,
+    model_prob: 0.96,
+    limit_price: 0.83,
+    ask: 0.83,
+    pinnacle_prob: 0.96,
+    score_age_ms: 5_000
+  });
+  assert.equal(divergent.code, 'endgame_divergence');
+  const blind = place({
+    sector: 'live',
+    endgame: true,
+    model_prob: 0.96,
+    limit_price: 0.83,
+    ask: 0.83
+  });
+  assert.equal(blind.action, 'place');
+  assert.equal(blind.code, 'divergence_micro');
+  assert.equal(blind.sizeUsd, 1);
+  const agreed = place({
+    sector: 'live',
+    endgame: true,
+    model_prob: 0.96,
+    limit_price: 0.84,
+    ask: 0.84,
+    espn_prob: 0.90,
+    pinnacle_prob: 0.92,
+    score_sampled_at: new Date(WED_OPEN.getTime() - 15_000).toISOString()
+  });
+  assert.equal(agreed.action, 'place');
+  assert.equal(agreed.code, 'pass');
+  assert.equal(agreed.sizeUsd, 2);
 });
 
 test('dry-run stays on unless live flag, dry-run off, and both keys are set', () => {

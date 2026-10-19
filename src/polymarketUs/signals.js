@@ -8,7 +8,7 @@ import { formatPtTimestamp, formatWindowStamp } from './time.js';
 const SECRET_KEY = /private|secret|mnemonic|passphrase|apikey|api_key/i;
 
 export function defaultLedgerRoot() {
-  return process.env.POLYMARKET_US_LEDGER_DIR || '/workspace/polymarket-ledger';
+  return process.env.POLYMARKET_US_LEDGER_DIR || process.env.LEDGER_DIR || '/workspace/polymarket-ledger';
 }
 
 export function defaultWorkspaceRoot() {
@@ -30,7 +30,10 @@ export function usPaths(ledgerRoot = defaultLedgerRoot(), workspaceRoot = defaul
     momentumTrials: join(ledgerRoot, 'momentum-trial.jsonl'),
     account: join(ledgerRoot, 'account.json'),
     modelInput: join(ledgerRoot, 'model-input.jsonl'),
-    digests: join(ledgerRoot, 'digests')
+    digests: join(ledgerRoot, 'digests'),
+    scans: join(ledgerRoot, 'scans'),
+    liveObservations: join(ledgerRoot, 'scans', 'live-observations.jsonl'),
+    liveObservationsSettled: join(ledgerRoot, 'scans', 'live-observations-settled.jsonl')
   };
 }
 

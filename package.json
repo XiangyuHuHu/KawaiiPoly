@@ -14,6 +14,8 @@
     "polymarket:deposit-wallet": "node scripts/polymarket-deposit-wallet.js",
     "us:scan": "node scripts/us-scan.js scan",
     "us:settle": "node scripts/us-scan.js settle",
+    "us:live-observe": "node scripts/us-scan.js live-observe",
+    "us:live-analyze": "node scripts/analyze-live-observations.js",
     "test": "node --test test/*.test.js",
     "check": "node --check server.js"
   },
