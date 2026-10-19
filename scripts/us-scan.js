@@ -1,4 +1,5 @@
 import { defaultLoadWindow, refreshUsQuote, runUsScan } from '../src/polymarketUs/scan.js';
+import { runLiveObservations, settleLiveObservations } from '../src/polymarketUs/liveObserve.js';
 import { PublicMarketDataClient } from '../packages/kawaii-signal/publicMarketData.js';
 import { runUsDigest } from '../src/polymarketUs/digest.js';
 import { PolymarketUsGateway } from '../src/polymarketUs/gateway.js';
@@ -18,6 +19,20 @@ if (command === 'settle') {
   });
   console.log(`us-settle changed=${result.changed ? 1 : 0}`);
   console.log(result.line);
+  let observations = { settled: 0, pending: 0, errors: [] };
+  try {
+    observations = await settleLiveObservations({
+      ledgerRoot,
+      lookup: (slug) => gateway.getMarket(slug)
+    });
+  } catch (error) {
+    observations = { settled: 0, pending: 0, errors: [String(error?.message || error).slice(0, 160)] };
+  }
+  console.log(`us-settle live-obs settled=${observations.settled} pending=${observations.pending} errors=${observations.errors?.length || 0}`);
+} else if (command === 'live-observe') {
+  const gateway = new PolymarketUsGateway();
+  const result = await runLiveObservations({ ledgerRoot, gateway });
+  console.log(`us-live-observe appended=${result.appended} dup=${result.skippedDup || 0} markets=${result.markets || 0} errors=${result.errors?.length || 0}`);
 } else if (command === 'scan') {
   const gateway = new PolymarketUsGateway();
   const marketData = new PublicMarketDataClient();
@@ -34,7 +49,8 @@ if (command === 'settle') {
     ignoreWindow,
     loadWindow: (args) => defaultLoadWindow({ gateway, marketData, ...args }),
     refreshQuote: (model) => refreshUsQuote(gateway, model),
-    loadModels: async () => models.rows
+    loadModels: async () => models.rows,
+    observeLive: (args) => runLiveObservations({ ...args, gateway })
   });
   const ids = result.signals.map((signal) => (
     signal.order_kind === 'exploratory' ? `${signal.id}:exploratory` : signal.id
@@ -45,8 +61,9 @@ if (command === 'settle') {
       console.log(`sector-brake sector=${event.sector} until=${event.pausedUntil} wins=${event.wins} pnl=${event.pnlUsd}`);
     }
   }
-  console.log(`us-scan signals=${result.published} reason=${result.reason}${session}${ids ? ` id=${ids}` : ''}`);
+  const observed = result.liveObservations || {};
+  console.log(`us-scan signals=${result.published} reason=${result.reason}${session}${ids ? ` id=${ids}` : ''} live-obs=${observed.appended ?? 0} live-obs-errors=${observed.errors?.length || (observed.error ? 1 : 0)}`);
 } else {
-  console.error('usage: node scripts/us-scan.js [scan|settle]');
+  console.error('usage: node scripts/us-scan.js [scan|settle|live-observe]');
   process.exit(1);
 }

@@ -331,7 +331,11 @@ export function normalizeModelRow(row = {}) {
     bboSampledAt: row.bbo_sampled_at ?? row.bboSampledAt,
     bboAgeMs: row.bbo_age_ms ?? row.bboAgeMs,
     liveKind: row.live_kind ?? row.liveKind,
-    timeframe: row.timeframe || null
+    timeframe: row.timeframe || null,
+    espnProb: row.espn_prob ?? row.espnProb ?? null,
+    pinnacleProb: row.pinnacle_prob ?? row.pinnacleProb ?? null,
+    scoreSampledAt: row.score_sampled_at ?? row.scoreSampledAt ?? null,
+    scoreAgeMs: row.score_age_ms ?? row.scoreAgeMs ?? null
   };
 }
 
@@ -363,16 +367,28 @@ export async function runUsScan({
   loadWindow,
   loadModels,
   refreshQuote,
+  observeLive = null,
   rules = US_RULES
 } = {}) {
   const session = describeSession(now, rules);
+  const liveTask = (observeLive ? Promise.resolve().then(() => observeLive({ now, ledgerRoot, rules })) : Promise.resolve({ appended: 0, skipped: true }))
+    .catch((error) => ({
+      appended: 0,
+      error: String(error?.message || error).slice(0, 160)
+    }));
   const brakeSync = await syncSectorBrakes(ledgerRoot, now);
   const allowShort = ignoreWindow || session.btcShort;
   const allowLong = ignoreWindow || session.longDated;
   const allowSuite = ignoreWindow || session.fullSuite;
   if (!allowShort && !allowLong && !allowSuite) {
-    await writeStatus(ledgerRoot, 'last-scan.json', { signal: false, reason: 'outside-window', session });
-    return { published: 0, signals: [], skipped: [], reason: 'outside-window', session };
+    const liveObservations = await liveTask;
+    await writeStatus(ledgerRoot, 'last-scan.json', {
+      signal: false,
+      reason: 'outside-window',
+      session,
+      liveObservations
+    });
+    return { published: 0, signals: [], skipped: [], reason: 'outside-window', session, liveObservations };
   }
   const published = [];
   const skipped = [];
@@ -466,11 +482,13 @@ export async function runUsScan({
       if (result.wrote) published.push(decision.signal);
     }
   }
+  const liveObservations = await liveTask;
   await writeStatus(ledgerRoot, 'last-scan.json', {
     signal: published.length > 0,
     published: published.map((signal) => signal.id),
     skipped,
-    session
+    session,
+    liveObservations
   });
   return {
     published: published.length,
@@ -478,7 +496,8 @@ export async function runUsScan({
     skipped,
     brakeEvents: brakeSync.events,
     reason: published.length ? 'signal' : (skipped[0] || 'no-signal'),
-    session
+    session,
+    liveObservations
   };
 }
 

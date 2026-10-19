@@ -171,7 +171,7 @@ export async function runUsDigest({
   await writeFile(settlementPath, `${JSON.stringify({
     venue: 'polymarket.us',
     source: 'gateway.polymarket.us + real-orders.jsonl',
-    spec_version: '3.3',
+    spec_version: '3.4',
     ...summary
   }, null, 2)}\n`);
   if (summary.changed) await writeFile(nightlyPath, `${summary.line}\n`);

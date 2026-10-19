@@ -1,7 +1,7 @@
 /**
- * Polymarket US scan rules from SCAN_SPEC v3.3.
- * v3.2 replaced the v3 confirm-before-order flow. v3.3 tightens BTC misprice
- * after the 2026-10-15..17 settlements. Scanners write SIGNAL files and never place orders.
+ * Polymarket US scan rules from SCAN_SPEC v3.4.
+ * v3.3 tightens BTC misprice. v3.4 adds the live observation log and the
+ * endgame divergence gate. Scanners write SIGNAL files and never place orders.
  * The bot may send the limit order without another chat confirmation.
  */
 
@@ -19,10 +19,18 @@ import {
   US_EXPLORATORY_MAX_EDGE,
   US_EXPLORATORY_MIN_DISTANCE_BPS,
   US_EXPLORATORY_MIN_EDGE,
-  US_EXPLORATORY_SIZE_USD
+  US_EXPLORATORY_SIZE_USD,
+  US_LIVE_ENDGAME_DIVERGENCE,
+  US_LIVE_ENDGAME_DIVERGENCE_ENABLED,
+  US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD,
+  US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL,
+  US_LIVE_ENDGAME_SCORE_MAX_AGE_MS,
+  US_SOCCER_PAPER_MAX_PRICE,
+  US_SOCCER_PAPER_MIN_MODEL,
+  US_SOCCER_PAPER_PHASES
 } from './constants.js';
 
-export const US_SPEC_VERSION = '3.3';
+export const US_SPEC_VERSION = '3.4';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
 export const US_GATEWAY_ORIGIN = 'https://gateway.polymarket.us/v1';
@@ -75,6 +83,14 @@ export const US_RULES = Object.freeze({
     liveInGameMaxPrice: 0.95,
     liveEndgameMinModel: 0.88,
     liveEndgameMaxPrice: 0.95,
+    liveEndgameDivergence: US_LIVE_ENDGAME_DIVERGENCE,
+    liveEndgameDivergenceMinModel: US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL,
+    liveEndgameScoreMaxAgeMs: US_LIVE_ENDGAME_SCORE_MAX_AGE_MS,
+    liveEndgameDivergenceFallbackUsd: US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD,
+    liveEndgameDivergenceEnabled: US_LIVE_ENDGAME_DIVERGENCE_ENABLED,
+    soccerPaperMinModel: US_SOCCER_PAPER_MIN_MODEL,
+    soccerPaperMaxPrice: US_SOCCER_PAPER_MAX_PRICE,
+    soccerPaperPhases: US_SOCCER_PAPER_PHASES,
     standardMinPrice: 0.15,
     standardMaxPrice: 0.85,
     maxSpreadCents: 3,
