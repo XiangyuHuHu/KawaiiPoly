@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   US_BTC_MISPRICE_MIN_MODEL,
   US_CASH_RESERVE_USD,
@@ -20,12 +21,19 @@ import {
 } from '../src/polymarketUs/constants.js';
 import { endgameDivergenceGate, soccerFavoritePaper } from '../src/polymarketUs/liveGate.js';
 import { classifyLivePhase } from '../src/polymarketUs/livePhase.js';
-import { espnProbFromSummary, pinnacleLiveLines } from '../src/polymarketUs/liveSources.js';
+import { espnProbFromSummary, fetchPinnacleLive, PINNACLE_LIVE_SPORTS, pinnacleLiveLines } from '../src/polymarketUs/liveSources.js';
+import {
+  configureGatewayLimiter,
+  isObservePaused,
+  resetGatewayLimiter,
+  withGatewaySlot
+} from '../src/polymarketUs/gatewayLimit.js';
 import { formatGrid, observationGrid } from '../src/polymarketUs/liveAnalyze.js';
 import {
   appendLiveObservations,
   buildLiveObservationRows,
   outcomeFromUsMarket,
+  quoteMap,
   rulePassForSide,
   runLiveObservations,
   settleLiveObservations
@@ -35,6 +43,7 @@ import { usPaths } from '../src/polymarketUs/signals.js';
 import { US_RULES } from '../src/polymarketUs/rules.js';
 
 const NOW = new Date('2026-10-19T20:10:00.000Z');
+const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 test('BTC caps, cash reserve, and endgame floors stay put in v3.4', () => {
   assert.equal(US_BTC_MISPRICE_MIN_MODEL, 0.56);
@@ -291,6 +300,7 @@ test('observation rows cover both sides, paper soccer, and a divergent endgame w
     const result = await runLiveObservations({
       now: NOW,
       ledgerRoot: root,
+      quoteGapMs: 0,
       listEvents: async () => [liveEvent(), nfl],
       getBbo: async (slug) => quotes[slug] || null,
       loadSources: async () => ({
@@ -306,6 +316,7 @@ test('observation rows cover both sides, paper soccer, and a divergent endgame w
     const again = await runLiveObservations({
       now: NOW,
       ledgerRoot: root,
+      quoteGapMs: 0,
       listEvents: async () => [liveEvent()],
       getBbo: async (slug) => quotes[slug] || null,
       loadSources: async () => ({ pinnacle: [], espn: [], errors: [] })
@@ -412,7 +423,7 @@ test('settle writes a separate file and the grid uses the first hit', async () =
         'scripts/analyze-live-observations.js',
         file,
         usPaths(root).liveObservationsSettled
-      ], { cwd: '/workspace' });
+      ], { cwd: repoRoot });
       let out = '';
       child.stdout.on('data', (chunk) => {
         out += chunk;
@@ -460,5 +471,237 @@ test('a failing live observer does not stop the scan', async () => {
     assert.equal(logged.published, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('pinnacle 401 stays quiet and esports and cricket are not requested', async () => {
+  assert.equal(PINNACLE_LIVE_SPORTS.some((sport) => sport.sport === 'esports' || sport.id === 12), false);
+  assert.equal(PINNACLE_LIVE_SPORTS.some((sport) => sport.sport === 'cricket' || sport.id === 8), false);
+  assert.equal(PINNACLE_LIVE_SPORTS.some((sport) => sport.sport === 'tennis'), true);
+  const urls = [];
+  const result = await fetchPinnacleLive({
+    sports: [
+      { id: 33, sport: 'tennis' },
+      { id: 29, sport: 'soccer' }
+    ],
+    fetchImpl: async (url) => {
+      urls.push(String(url));
+      if (String(url).includes('/sports/29/')) return { ok: false, status: 401 };
+      return { ok: true, status: 200, json: async () => [] };
+    }
+  });
+  assert.equal(result.lines.length, 0);
+  assert.equal(result.errors.length, 0);
+  assert.equal(urls.some((url) => url.includes('/sports/12/') || url.includes('/sports/8/')), false);
+});
+
+test('429 on a BTC quote skips that market and still runs observation after the trade fetches', async () => {
+  resetGatewayLimiter();
+  configureGatewayLimiter({ tradeGapMs: 0, observeGapMs: 0, backoffMs: 0 });
+  const root = await mkdtemp(join(tmpdir(), 'us-live-429-'));
+  const calls = [];
+  try {
+    const result = await runUsScan({
+      now: NOW,
+      ledgerRoot: root,
+      workspaceRoot: root,
+      loadWindow: async ({ timeframe }) => {
+        calls.push(timeframe);
+        const error = new Error('Polymarket US GET /bbo 429: {"errors":[{"code":1015}]}');
+        error.status = 429;
+        error.payload = { errors: [{ code: 1015 }] };
+        throw error;
+      },
+      loadModels: async () => [{
+        sector: 'pregame',
+        slug: 'pregame-soccer',
+        side: 'Yes',
+        model_prob: 0.7,
+        resolution_risk: 'Low',
+        confidence: 'High'
+      }],
+      refreshQuote: async (model) => {
+        calls.push(`quote:${model.slug}`);
+        const error = new Error('rate limited');
+        error.status = 429;
+        throw error;
+      },
+      observeLive: async () => {
+        calls.push('observe');
+        return { appended: 1, errors: [] };
+      }
+    });
+    assert.equal(result.published, 0);
+    assert.ok(result.skipped.includes('15m:rate-limit'));
+    assert.ok(result.skipped.includes('1h:rate-limit'));
+    assert.ok(result.skipped.includes('pregame:rate-limit'));
+    assert.equal(calls.at(-1), 'observe');
+    assert.ok(calls.indexOf('15m') < calls.indexOf('observe'));
+    assert.equal(result.liveObservations.appended, 1);
+    await assert.rejects(runUsScan({
+      now: NOW,
+      ledgerRoot: root,
+      workspaceRoot: root,
+      loadWindow: async () => {
+        const error = new Error('boom');
+        error.status = 500;
+        throw error;
+      },
+      loadModels: async () => []
+    }), /boom/);
+  } finally {
+    resetGatewayLimiter();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('observation quotes reuse cached BBO, skip model none, and stop after 429', async () => {
+  resetGatewayLimiter();
+  configureGatewayLimiter({ backoffMs: 0, observeGapMs: 0, tradeGapMs: 0 });
+  const calls = [];
+  let active = 0;
+  let maxActive = 0;
+  const mapped = await quoteMap(['cached', 'hot', 'later'], async (slug) => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    calls.push(slug);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    active -= 1;
+    if (slug === 'hot') {
+      const error = new Error('HTTP 429');
+      error.status = 429;
+      throw error;
+    }
+    return { bestAsk: 0.5 };
+  }, { gapMs: 0, reused: { cached: { bestAsk: 0.42, longAsk: 0.42 } } });
+  assert.deepEqual(calls, ['hot']);
+  assert.equal(maxActive, 1);
+  assert.equal(mapped.quotes.cached.bestAsk, 0.42);
+  assert.equal(mapped.quotes.later, null);
+  assert.equal(mapped.rateLimited, true);
+  assert.equal(isObservePaused(), true);
+  resetGatewayLimiter();
+
+  const root = await mkdtemp(join(tmpdir(), 'us-live-quotes-'));
+  try {
+    const seen = [];
+    const summary = await runLiveObservations({
+      now: new Date('2026-10-19T21:12:00.000Z'),
+      ledgerRoot: root,
+      quoteGapMs: 0,
+      quoteCache: {
+        'atc-epl-tot-cov-2026-10-19-tot': {
+          bestAsk: 0.7,
+          bestBid: 0.68,
+          longAsk: 0.7,
+          shortAsk: 0.32,
+          askShares: 100,
+          bidShares: 80
+        }
+      },
+      listEvents: async () => [
+        liveEvent(),
+        {
+          slug: 'nfl-was-sf-2026-10-19',
+          seriesSlug: 'nfl-2025',
+          category: 'sports',
+          live: true,
+          teams: [{ name: 'San Francisco 49ers' }, { name: 'Washington Commanders' }],
+          eventState: { type: 'football', period: 'Q4', elapsed: '2:10', score: '24-17', live: true, updatedAt: NOW.toISOString() },
+          markets: [{
+            slug: 'aec-nfl-end',
+            marketType: 'moneyline',
+            sportsMarketType: 'football_team_full_game_winner',
+            marketSides: [{ long: true, team: { name: 'San Francisco 49ers' } }]
+          }]
+        },
+        {
+          slug: 'nhl-no-model',
+          seriesSlug: 'nhl-2025',
+          category: 'sports',
+          live: true,
+          teams: [{ name: 'Seattle Kraken' }, { name: 'Vegas Golden Knights' }],
+          eventState: { type: 'hockey', period: '1st', score: '0-0', live: true, updatedAt: NOW.toISOString() },
+          markets: [{
+            slug: 'aec-nhl-quiet',
+            marketType: 'moneyline',
+            sportsMarketType: 'hockey_team_full_game_winner',
+            marketSides: [{ long: true, team: { name: 'Seattle Kraken' } }]
+          }]
+        }
+      ],
+      getBbo: async (slug) => {
+        seen.push(slug);
+        const error = new Error('429');
+        error.status = 429;
+        throw error;
+      },
+      loadSources: async () => ({
+        pinnacle: [
+          { home: 'Tottenham', away: 'Coventry City', homeProb: 0.82, awayProb: 0.1, drawProb: 0.08 },
+          { home: 'San Francisco 49ers', away: 'Washington Commanders', homeProb: 0.96, awayProb: 0.04, drawProb: 0 }
+        ],
+        espn: [],
+        errors: []
+      })
+    });
+    assert.deepEqual(seen, ['aec-nfl-end']);
+    assert.equal(summary.appended, 6);
+    const lines = (await readFile(usPaths(root).liveObservations, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    const soccer = lines.find((row) => row.market_slug.startsWith('atc-epl') && row.side === 'Yes');
+    const quiet = lines.find((row) => row.market_slug === 'aec-nhl-quiet' && row.side === 'Yes');
+    assert.equal(soccer.ask, 0.7);
+    assert.equal(soccer.model_src, 'pinnacle_devig');
+    assert.equal(quiet.model_src, 'none');
+    assert.equal(quiet.ask, null);
+    assert.equal(quiet.rule_pass.observe_band, false);
+  } finally {
+    resetGatewayLimiter();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('trade quotes keep priority and observation quotes do not fire after a 429', async () => {
+  resetGatewayLimiter();
+  configureGatewayLimiter({ tradeGapMs: 0, observeGapMs: 0, backoffMs: 0 });
+  try {
+    const order = [];
+    let release;
+    const hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    const first = withGatewaySlot(async () => {
+      order.push('first');
+      await hold;
+    }, { lane: 'trade' });
+    const observe = withGatewaySlot(async () => {
+      order.push('observe');
+    }, { lane: 'observe' });
+    const trade = withGatewaySlot(async () => {
+      order.push('trade');
+    }, { lane: 'trade' });
+    release();
+    await Promise.all([first, observe, trade]);
+    assert.deepEqual(order, ['first', 'trade', 'observe']);
+
+    let calls = 0;
+    await assert.rejects(withGatewaySlot(async () => {
+      calls += 1;
+      const error = new Error('429');
+      error.status = 429;
+      throw error;
+    }, { lane: 'trade' }));
+    await assert.rejects(withGatewaySlot(async () => {
+      calls += 1;
+      return 'should-not-run';
+    }, { lane: 'observe' }), (error) => error.code === 'RATE_LIMITED' && calls === 1);
+    const traded = await withGatewaySlot(async () => {
+      calls += 1;
+      return 'ok';
+    }, { lane: 'trade' });
+    assert.equal(traded, 'ok');
+    assert.equal(calls, 2);
+  } finally {
+    resetGatewayLimiter();
   }
 });

@@ -16,6 +16,8 @@ v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位
 
 同一分钟、同一市场、同一方向只留一行。5 分钟任务和 15 分钟扫描撞在同一分钟时，后到的不重复写。Pinnacle、ESPN 或 BBO 失败只记在 `status/last-live-observe.json`，不让扫描退出。
 
+行情限流：`us:scan` 先打交易要用的 BTC 和其他报价，再跑观察。gateway.polymarket.us 在同一进程里共用一条队列，交易请求插到观察请求前面。观察 BBO 只拉 `model_src != none` 的市场，扫描已经拿到的 BBO 直接复用，并且串行大约每秒一个。遇到 HTTP 429 或 Cloudflare 1015，这一笔交易行情退让后跳过，扫描继续；观察行情从第一次 429 起本轮不再请求。Pinnacle guest API 对电竞和板球返回 401，这两项不请求，401/403 也不记成错误，模型留 `none`。
+
 每个正在进行的 moneyline（含足球三个 `drawable_outcome` 胜负盘）写 Yes 和 No 两行，没有模型也写，低于 0.60 的一侧也写。日志没有更高的模型地板。
 
 面向阈值研究的存储带是 `model_prob ≥ 0.60`（`US_LIVE_OBSERVE_MIN_MODEL`）。用户常在这一带买更高胜率的一侧，所以要从 0.60 起攒几天的 ROI，而不是只盯尾盘 0.88。`model_prob` 有值且 ≥ 0.60 时，`rule_pass.observe_band = true`，方便事后过滤。这面旗子不下单，也不改尾盘地板。

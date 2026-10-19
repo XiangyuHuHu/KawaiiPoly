@@ -55,25 +55,40 @@ function passing(overrides = {}) {
 }
 
 test('US and international endpoints stay separate', () => {
-  const config = getConfig();
-  assert.equal(config.polymarket.gammaBaseUrl, 'https://gamma-api.polymarket.com');
-  assert.equal(config.polymarket.clobBaseUrl, 'https://clob.polymarket.com');
-  assert.match(config.polymarketUs.gatewayBaseUrl, /^https:\/\/gateway\.polymarket\.us/);
-  assert.match(config.polymarketUs.apiBaseUrl, /api\.polymarket\.us/);
-  assert.equal(config.polymarketUs.siteBaseUrl, 'https://polymarket.us');
-  assert.equal(config.polymarket.line, 'intl-paper');
-  assert.equal(config.polymarket.intlPaperEnabled, true);
-  assert.equal(config.polymarketUs.line, 'polymarket_us');
-  assert.equal(config.polymarketUs.scannerPlacesOrders, false);
-  assert.equal(config.polymarketUs.standingAutoOrder, true);
-  assert.equal(config.polymarketUs.perTradeConfirm, false);
-  assert.equal(config.polymarketUs.dryRun, true);
-  assert.equal(config.polymarketUs.liveTradingEnabled, false);
-  assert.match(String(config.polymarketUs.specVersion), /3\.4/);
-  assert.throws(
-    () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
-    /refuses international/
-  );
+  const keys = [
+    'POLYMARKET_US_DRY_RUN',
+    'POLYMARKET_US_LIVE_TRADING_ENABLED',
+    'POLYMARKET_US_ACCESS_KEY',
+    'POLYMARKET_US_SECRET_KEY'
+  ];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) delete process.env[key];
+  try {
+    const config = getConfig();
+    assert.equal(config.polymarket.gammaBaseUrl, 'https://gamma-api.polymarket.com');
+    assert.equal(config.polymarket.clobBaseUrl, 'https://clob.polymarket.com');
+    assert.match(config.polymarketUs.gatewayBaseUrl, /^https:\/\/gateway\.polymarket\.us/);
+    assert.match(config.polymarketUs.apiBaseUrl, /api\.polymarket\.us/);
+    assert.equal(config.polymarketUs.siteBaseUrl, 'https://polymarket.us');
+    assert.equal(config.polymarket.line, 'intl-paper');
+    assert.equal(config.polymarket.intlPaperEnabled, true);
+    assert.equal(config.polymarketUs.line, 'polymarket_us');
+    assert.equal(config.polymarketUs.scannerPlacesOrders, false);
+    assert.equal(config.polymarketUs.standingAutoOrder, true);
+    assert.equal(config.polymarketUs.perTradeConfirm, false);
+    assert.equal(config.polymarketUs.dryRun, true);
+    assert.equal(config.polymarketUs.liveTradingEnabled, false);
+    assert.match(String(config.polymarketUs.specVersion), /3\.4/);
+    assert.throws(
+      () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
+      /refuses international/
+    );
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+  }
 });
 
 test('event url strips the cpc prefix', () => {

@@ -10,16 +10,17 @@ import { fetchJson, safeError } from './models/http.js';
 const PINNACLE = 'https://guest.api.arcadia.pinnacle.com/0.1';
 const PINNACLE_HEADERS = { Referer: 'https://www.pinnacle.com/' };
 
-/** 有滚球盘口的运动。联赛列表不写死，只拉当前 live 的联赛。 */
+/**
+ * 有滚球盘口的运动。联赛列表不写死，只拉当前 live 的联赛。
+ * guest API 对电竞（12）和板球（8）返回 401，网球是 200。这两项不请求，模型留 none。
+ */
 export const PINNACLE_LIVE_SPORTS = Object.freeze([
   Object.freeze({ id: 29, sport: 'soccer' }),
   Object.freeze({ id: 4, sport: 'basketball' }),
   Object.freeze({ id: 15, sport: 'football' }),
   Object.freeze({ id: 19, sport: 'hockey' }),
   Object.freeze({ id: 3, sport: 'baseball' }),
-  Object.freeze({ id: 33, sport: 'tennis' }),
-  Object.freeze({ id: 12, sport: 'esports' }),
-  Object.freeze({ id: 8, sport: 'cricket' })
+  Object.freeze({ id: 33, sport: 'tennis' })
 ]);
 
 export const ESPN_SCOREBOARDS = Object.freeze([
@@ -146,6 +147,7 @@ export async function fetchPinnacleLive({
       });
       for (const matchup of Array.isArray(live) ? live : []) rememberGame(games, matchup, sport.sport);
     } catch (error) {
+      if (error?.status === 401 || error?.status === 403) continue;
       errors.push(`pinnacle:${sport.sport}:${safeError(error)}`);
     }
   }

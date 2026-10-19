@@ -4,10 +4,13 @@
  * 同一分钟同一市场同一方向不重复写。数据源失败只记错误，不抛出。
  * 这里不下单。足球热门只在 rule_pass.would_signal_paper 标 true。
  * model_prob ≥ 0.60 时 rule_pass.observe_band 为 true；低于此值或没有模型仍写日志。
+ * BBO 只拉有模型的市场，串行大约每秒一个；429 之后本轮不再拉观察行情。
  */
 
 import { open, stat } from 'node:fs/promises';
+import { US_GATEWAY_OBSERVE_GAP_MS } from './constants.js';
 import { appendJsonl, readJsonl } from './ledger.js';
+import { isObservePaused, isRateLimitError, noteGatewayRateLimit } from './gatewayLimit.js';
 import { endgameDivergenceGate, resolveScoreAgeMs, soccerFavoritePaper } from './liveGate.js';
 import { classifyLivePhase, sportFromEvent } from './livePhase.js';
 import { loadLiveModelSources } from './liveSources.js';
@@ -57,6 +60,23 @@ export function isLiveSportsEvent(event) {
 
 function eventTeams(event) {
   return (event?.teams || []).map((team) => team?.name || team?.alias).filter(Boolean);
+}
+
+export function observationQuoteSlugs(events = [], pinnacleLines = [], espnLines = []) {
+  const slugs = [];
+  for (const event of events) {
+    if (!isLiveSportsEvent(event)) continue;
+    const names = eventTeams(event);
+    const line = findProbLine(pinnacleLines, names) || findProbLine(espnLines, names);
+    if (!line) continue;
+    for (const market of event.markets || []) {
+      if (!isSportsMoneyline(market) || !market.slug) continue;
+      const yes = outcomeProb(line, yesOutcome(market));
+      if (sideProb(yes, 'Yes') == null && sideProb(yes, 'No') == null) continue;
+      slugs.push(market.slug);
+    }
+  }
+  return [...new Set(slugs)];
 }
 
 export function findProbLine(lines, teamNames) {
@@ -408,25 +428,59 @@ function withTimeout(promise, ms) {
   });
 }
 
-async function quoteMap(slugs, getBbo) {
+function delay(ms) {
+  if (!(ms > 0)) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function reusedQuoteMap(quoteCache, gateway) {
   const quotes = {};
+  const entries = quoteCache instanceof Map ? quoteCache.entries() : Object.entries(quoteCache || {});
+  for (const [slug, quote] of entries) {
+    if (slug && quote) quotes[slug] = quote;
+  }
+  if (gateway?.bboBySlug instanceof Map) {
+    for (const [slug, quote] of gateway.bboBySlug) {
+      if (slug && quote) quotes[slug] = quote;
+    }
+  }
+  return quotes;
+}
+
+/**
+ * 观察行情串行，大约每秒一个。已经有扫描缓存的 slug 不再请求。
+ * 第一次 429 之后，本轮剩下的观察行情直接停。
+ */
+export async function quoteMap(slugs, getBbo, { reused = {}, gapMs = US_GATEWAY_OBSERVE_GAP_MS } = {}) {
+  const quotes = { ...reused };
   const errors = [];
-  let cursor = 0;
-  const worker = async () => {
-    while (cursor < slugs.length) {
-      const slug = slugs[cursor];
-      cursor += 1;
-      try {
-        quotes[slug] = await withTimeout(Promise.resolve().then(() => getBbo(slug)), 4000);
-      } catch (error) {
-        quotes[slug] = null;
+  let stopped = isObservePaused();
+  let previous = 0;
+  for (const slug of slugs) {
+    if (quotes[slug]) continue;
+    if (stopped || isObservePaused()) {
+      stopped = true;
+      quotes[slug] = null;
+      errors.push(`bbo:${slug}:rate-limit-paused`);
+      continue;
+    }
+    const wait = gapMs - (Date.now() - previous);
+    if (previous && wait > 0) await delay(wait);
+    previous = Date.now();
+    try {
+      quotes[slug] = await withTimeout(Promise.resolve().then(() => getBbo(slug)), 8000);
+    } catch (error) {
+      quotes[slug] = null;
+      if (isRateLimitError(error)) {
+        noteGatewayRateLimit();
+        stopped = true;
+        errors.push(`bbo:${slug}:429`);
+      } else {
         errors.push(`bbo:${slug}:${String(error?.message || error).slice(0, 120)}`);
       }
     }
-  };
-  const workers = Array.from({ length: Math.min(8, slugs.length) }, () => worker());
-  if (workers.length) await Promise.all(workers);
-  return { quotes, errors };
+  }
+  return { quotes, errors, rateLimited: stopped };
 }
 
 export async function runLiveObservations({
@@ -437,12 +491,14 @@ export async function runLiveObservations({
   listEvents = null,
   getBbo = null,
   loadSources = null,
+  quoteCache = null,
+  quoteGapMs = US_GATEWAY_OBSERVE_GAP_MS,
   rules = US_RULES
 } = {}) {
   try {
     const paths = usPaths(ledgerRoot);
     const list = listEvents || (gateway ? (query) => gateway.listEvents(query) : null);
-    const bbo = getBbo || (gateway ? (slug) => gateway.getBbo(slug) : null);
+    const bbo = getBbo || (gateway ? (slug, options) => gateway.getBbo(slug, options) : null);
     if (!list || !bbo) {
       return { appended: 0, skippedDup: 0, markets: 0, errors: ['missing-gateway'], path: paths.liveObservations };
     }
@@ -470,7 +526,14 @@ export async function runLiveObservations({
       errors.push(`sources:${String(error?.message || error).slice(0, 160)}`);
     }
     errors.push(...(sources.errors || []));
-    const quoted = await quoteMap(uniqueSlugs, bbo);
+    const modeled = observationQuoteSlugs(live, sources.pinnacle || [], sources.espn || []);
+    const reused = reusedQuoteMap(quoteCache, gateway);
+    // gateway.getBbo 走共享队列，间隔在 limiter 里。注入的 getBbo 由 quoteMap 自己按 quoteGapMs 串行。
+    const pacedByLimiter = Boolean(gateway) && getBbo == null;
+    const quoted = await quoteMap(modeled, (slug) => bbo(slug, { lane: 'observe' }), {
+      reused,
+      gapMs: pacedByLimiter ? 0 : quoteGapMs
+    });
     errors.push(...quoted.errors);
     let pending = [];
     try {
@@ -492,6 +555,7 @@ export async function runLiveObservations({
       appended: written.appended,
       skippedDup: written.skippedDup,
       markets: uniqueSlugs.length,
+      quoted: modeled.filter((slug) => !reused[slug]).length,
       events: live.length,
       errors,
       path: paths.liveObservations

@@ -1,4 +1,5 @@
 import { US_GATEWAY_BASE, US_MARKET_PATHS } from './constants.js';
+import { withGatewaySlot } from './gatewayLimit.js';
 import { usRequest } from './http.js';
 import { isIntlHost } from './rules.js';
 import { readNumber, tradingSlug } from './shape.js';
@@ -155,10 +156,11 @@ export class PolymarketUsGateway {
     this.requestTimeoutMs = requestTimeoutMs;
     this.fetchImpl = fetchImpl;
     this.line = 'polymarket_us';
+    this.bboBySlug = new Map();
   }
 
-  request(path, query) {
-    return usRequest({
+  request(path, query, options = {}) {
+    return withGatewaySlot(() => usRequest({
       baseUrl: this.gatewayBaseUrl,
       method: 'GET',
       path,
@@ -166,7 +168,7 @@ export class PolymarketUsGateway {
       timeoutMs: this.requestTimeoutMs,
       fetchImpl: this.fetchImpl,
       label: '美国盘行情'
-    });
+    }), { lane: options.lane || 'trade' });
   }
 
   async listEvents(query = {}) {
@@ -228,11 +230,17 @@ export class PolymarketUsGateway {
     throw missing;
   }
 
-  async getBbo(slug) {
+  async getBbo(slug, options = {}) {
     if (!slug) throw new Error('slug is required');
     const safe = encodeURIComponent(tradingSlug(slug));
-    const { data, headers } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}/bbo`);
-    return { ...normalizeUsBbo(data), cacheAgeMs: cacheAgeMsFrom(headers) };
+    const { data, headers } = await this.request(`${US_MARKET_PATHS.bbo}/${safe}/bbo`, undefined, {
+      lane: options.lane || 'trade'
+    });
+    const bbo = { ...normalizeUsBbo(data), cacheAgeMs: cacheAgeMsFrom(headers) };
+    this.bboBySlug.set(String(slug), bbo);
+    const traded = tradingSlug(slug);
+    if (traded && traded !== slug) this.bboBySlug.set(String(traded), bbo);
+    return bbo;
   }
 
   async getBook(slug) {
