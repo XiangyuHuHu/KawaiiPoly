@@ -3,6 +3,7 @@
  * 每个正在进行的美国站胜负盘，Yes 和 No 各写一行，不管过不过规则。
  * 同一分钟同一市场同一方向不重复写。数据源失败只记错误，不抛出。
  * 这里不下单。足球热门只在 rule_pass.would_signal_paper 标 true。
+ * model_prob ≥ 0.60 时 rule_pass.observe_band 为 true；低于此值或没有模型仍写日志。
  */
 
 import { open, stat } from 'node:fs/promises';
@@ -186,6 +187,8 @@ export function rulePassForSide({
       divergence: gate.divergence
     };
   }
+  const observeMin = rules.edge.liveObserveMinModel ?? 0.60;
+  const observeBand = modelProb != null && modelProb + 1e-12 >= observeMin;
   const inGameEdge = rules.edge.liveInGame;
   let inGameReason = 'not_in_game';
   let inGamePass = false;
@@ -201,6 +204,7 @@ export function rulePassForSide({
   return {
     would_signal: endgame.pass === true,
     would_signal_paper: paper.would_signal_paper === true,
+    observe_band: observeBand,
     endgame,
     in_game: { pass: inGamePass, reason: inGameReason },
     soccer_favorite_paper: paper

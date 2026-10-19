@@ -103,6 +103,16 @@ export const US_LIVE_ENDGAME_DIVERGENCE_ENABLED = true;
 export const US_SOCCER_PAPER_MIN_MODEL = 0.80;
 export const US_SOCCER_PAPER_MAX_PRICE = 0.93;
 export const US_SOCCER_PAPER_PHASES = Object.freeze(['early', 'mid', 'late']);
+/**
+ * 观察日志仍写每一场 Live 胜负盘的 Yes 和 No，含无模型与低于此值的一侧。
+ * 这条只给 rule_pass.observe_band 和事后 ROI 网格用，不改变尾盘下单地板 0.88。
+ */
+export const US_LIVE_OBSERVE_MIN_MODEL = 0.60;
+/** us:live-analyze 默认门槛。价格帽仍是 0.90 / 0.93 / 0.95 / 0.99。 */
+export const US_LIVE_ANALYZE_THRESHOLDS = Object.freeze([
+  0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.88, 0.90, 0.92, 0.95
+]);
+export const US_LIVE_ANALYZE_CAPS = Object.freeze([0.90, 0.93, 0.95, 0.99]);
 export const US_PRICE_MIN = 0.15;
 export const US_PRICE_MAX = 0.85;
 export const US_LIVE_INPLAY_MAX_PRICE = 0.95;
