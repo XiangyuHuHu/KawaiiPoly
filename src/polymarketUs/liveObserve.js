@@ -11,7 +11,8 @@ import { open, stat } from 'node:fs/promises';
 import { US_GATEWAY_OBSERVE_GAP_MS } from './constants.js';
 import { appendJsonl, readJsonl } from './ledger.js';
 import { isObservePaused, isRateLimitError, noteGatewayRateLimit } from './gatewayLimit.js';
-import { endgameDivergenceGate, resolveScoreAgeMs, soccerFavoritePaper } from './liveGate.js';
+import { publishLiveEndgameV2 } from './liveEndgameV2.js';
+import { endgameDivergenceGate, endgameV2Rule, resolveScoreAgeMs, soccerFavoritePaper } from './liveGate.js';
 import { classifyLivePhase, sportFromEvent } from './livePhase.js';
 import { loadLiveModelSources } from './liveSources.js';
 import { teamsMatch } from './models/math.js';
@@ -207,6 +208,16 @@ export function rulePassForSide({
       divergence: gate.divergence
     };
   }
+  const endgameV2 = endgameV2Rule({
+    phase,
+    modelProb,
+    ask,
+    espnProb,
+    pinnacleProb,
+    scoreAgeMs,
+    now,
+    rules
+  });
   const observeMin = rules.edge.liveObserveMinModel ?? 0.60;
   const observeBand = modelProb != null && modelProb + 1e-12 >= observeMin;
   const inGameEdge = rules.edge.liveInGame;
@@ -224,8 +235,10 @@ export function rulePassForSide({
   return {
     would_signal: endgame.pass === true,
     would_signal_paper: paper.would_signal_paper === true,
+    would_signal_v2: endgameV2.pass === true,
     observe_band: observeBand,
     endgame,
+    endgame_v2: endgameV2,
     in_game: { pass: inGamePass, reason: inGameReason },
     soccer_favorite_paper: paper
   };
@@ -329,7 +342,7 @@ export function buildLiveObservationRows({
           espn_prob: espnProb,
           score_sampled_at: scoreSampledAt,
           score_age_ms: scoreAge,
-          spec_version: '3.4'
+          spec_version: '3.5'
         });
       }
     }
@@ -493,6 +506,8 @@ export async function runLiveObservations({
   loadSources = null,
   quoteCache = null,
   quoteGapMs = US_GATEWAY_OBSERVE_GAP_MS,
+  workspaceRoot,
+  publishSignals = true,
   rules = US_RULES
 } = {}) {
   try {
@@ -550,6 +565,25 @@ export async function runLiveObservations({
       now,
       rules
     });
+    let signals = { published: 0, ids: [], signals: [], skipped: [] };
+    if (publishSignals) {
+      try {
+        signals = await publishLiveEndgameV2({
+          rows,
+          quotesBySlug: quoted.quotes,
+          ledgerRoot,
+          workspaceRoot,
+          now,
+          rules
+        });
+        for (const item of signals.signals || []) {
+          const match = rows.find((row) => row.market_slug === item.slug && row.side === item.side && !row.signal_id);
+          if (match) match.signal_id = item.id;
+        }
+      } catch (error) {
+        errors.push(`signals:${String(error?.message || error).slice(0, 160)}`);
+      }
+    }
     const written = await appendLiveObservations(paths.liveObservations, rows);
     const summary = {
       appended: written.appended,
@@ -557,6 +591,7 @@ export async function runLiveObservations({
       markets: uniqueSlugs.length,
       quoted: modeled.filter((slug) => !reused[slug]).length,
       events: live.length,
+      signals,
       errors,
       path: paths.liveObservations
     };

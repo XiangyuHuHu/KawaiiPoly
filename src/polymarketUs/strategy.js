@@ -13,6 +13,10 @@ import {
   US_EDGE_STANDARD,
   US_LIVE_ENDGAME_MAX_PRICE,
   US_LIVE_ENDGAME_MIN_MODEL,
+  US_LIVE_ENDGAME_V2_MAX_PRICE,
+  US_LIVE_ENDGAME_V2_MIN_MODEL,
+  US_LIVE_ENDGAME_V2_SIZE_USD,
+  liveEndgameV2Enabled,
   US_LOSS_STREAK,
   US_MAX_SPREAD,
   US_MODEL_PROB_CAP,
@@ -241,6 +245,25 @@ function momentumDistanceBps(signal) {
   return readNumber(signal?.distance_bps, signal?.distanceBps, gates.distance_bps, gates.distanceBps);
 }
 
+export function conflictingEndgameTake(signal, takes = []) {
+  const sector = normalizeSector(signal?.sector);
+  const slug = tradingSlug(signal?.slug);
+  const side = normalizeOutcomeSide(signal?.side);
+  const endgame = sector === 'live_endgame_v2' || isLiveEndgame(signal);
+  if (!slug || !side || !endgame) return null;
+  for (const take of takes || []) {
+    if (!take || tradingSlug(take.slug) !== slug) continue;
+    const takeSector = normalizeSector(take.sector);
+    const takeSide = normalizeOutcomeSide(take.side);
+    const takeEndgame = takeSector === 'live_endgame_v2' || take.endgame === true;
+    if (sector === 'live_endgame_v2' && takeSector === 'live_endgame_v2') return 'one_per_market';
+    if (takeSide !== side || !takeEndgame) continue;
+    if (sector === 'live_endgame_v2' && takeSector === 'live') return 'duplicate_market_side';
+    if (sector === 'live' && takeSector === 'live_endgame_v2') return 'duplicate_market_side';
+  }
+  return null;
+}
+
 export function isLiveEndgame(signal) {
   const kind = signal?.live_kind ?? signal?.liveKind;
   if (kind === 'endgame') return true;
@@ -270,7 +293,7 @@ function oppositeOpen(signal, side, openWindows) {
 }
 
 /**
- * 对一条 SIGNAL 做 v3.4 门控。不访问网络。
+ * 对一条 SIGNAL 做 v3.5 门控。不访问网络。
  * action: place | skip | defer
  */
 export function evaluateUsSignal(signal, context = {}) {
@@ -310,8 +333,9 @@ export function evaluateUsSignal(signal, context = {}) {
   }
 
   const endgame = sector === 'live' && isLiveEndgame(signal);
+  const trial = sector === 'live_endgame_v2';
   const model = readNumber(signal?.model_prob, signal?.modelProb);
-  if (!endgame && model != null && model > US_MODEL_PROB_CAP + 1e-9) {
+  if (!endgame && !trial && model != null && model > US_MODEL_PROB_CAP + 1e-9) {
     return decision('skip', 'model_cap', `model_prob ${model} 超过封顶 ${US_MODEL_PROB_CAP}。`, { ...base, status: 'skipped' });
   }
   if (sector === 'momentum' && !momentumGatesOpen(signal)) {
@@ -345,7 +369,7 @@ export function evaluateUsSignal(signal, context = {}) {
     quote: quotedAsk == null ? null : quote
   });
   const referenceMid = readNumber(signal?.market_p, signal?.marketP);
-  if (sector === 'btc_misprice') {
+  if (sector === 'btc_misprice' || trial) {
     const fresh = bboIsFresh({
       ageMs: bboAge,
       referenceAsk: signalAsk,
@@ -355,7 +379,7 @@ export function evaluateUsSignal(signal, context = {}) {
       maxAgeMs: context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS
     });
     if (!fresh.ok) {
-      return decision('skip', 'stale_bbo', 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
+      return decision('skip', 'stale_bbo', trial ? '尾盘试单需要新鲜 BBO。' : 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
     }
   }
 
@@ -372,13 +396,30 @@ export function evaluateUsSignal(signal, context = {}) {
   let minEdge = null;
   let minPrice = US_PRICE_MIN;
   let maxPrice = US_PRICE_MAX;
-  if (sector === 'live' && endgame) {
+  if (trial) {
+    if (!liveEndgameV2Enabled()) {
+      return decision('skip', 'live_endgame_v2_disabled', '尾盘试单已关掉。', { ...base, status: 'skipped' });
+    }
+    minPrice = 0;
+    maxPrice = US_LIVE_ENDGAME_V2_MAX_PRICE;
+    if (model == null || model + 1e-9 < US_LIVE_ENDGAME_V2_MIN_MODEL) {
+      return decision('skip', 'endgame_v2_model', `尾盘试单模型 ${model} 低于 ${US_LIVE_ENDGAME_V2_MIN_MODEL}。`, { ...base, status: 'skipped' });
+    }
+    const conflict = conflictingEndgameTake(signal, context.marketTakes);
+    if (conflict) {
+      return decision('skip', conflict, '这个市场今天已经有尾盘单，不重复买。', { ...base, status: 'skipped' });
+    }
+  } else if (sector === 'live' && endgame) {
     // 尾盘没有 edge 门槛。冷板块 ×1.5 不加在 0.88 模型地板上（与扫描一致）。
     const minModel = US_LIVE_ENDGAME_MIN_MODEL;
     maxPrice = US_LIVE_ENDGAME_MAX_PRICE;
     minPrice = 0;
     if (model == null || model + 1e-9 < minModel) {
       return decision('skip', 'endgame_model', `尾盘模型 ${model} 低于 ${minModel}。`, { ...base, status: 'skipped' });
+    }
+    const conflict = conflictingEndgameTake(signal, context.marketTakes);
+    if (conflict) {
+      return decision('skip', conflict, '这个市场这一边今天已经有尾盘试单，不重复买。', { ...base, status: 'skipped' });
     }
   } else if (sector === 'live') {
     minEdge = cleanerEdgeFloor(US_EDGE_LIVE_INPLAY, sizing.cold);
@@ -398,7 +439,7 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'price_band', `价格 ${executionPrice} 不在 ${minPrice}–${maxPrice}。`, { ...base, status: 'skipped' });
   }
   let divergence = null;
-  if (sector === 'live' && endgame) {
+  if (trial || (sector === 'live' && endgame)) {
     divergence = endgameDivergenceGate({
       modelProb: model,
       ask: executionPrice,
@@ -407,7 +448,9 @@ export function evaluateUsSignal(signal, context = {}) {
       scoreAgeMs: signal?.score_age_ms ?? signal?.scoreAgeMs,
       scoreSampledAt: signal?.score_sampled_at ?? signal?.scoreSampledAt,
       now,
-      rules: context.rules
+      rules: context.rules,
+      agreeMin: trial ? US_LIVE_ENDGAME_V2_MIN_MODEL : null,
+      allowMicro: !trial
     });
     if (divergence.action === 'skip') {
       return decision('skip', 'endgame_divergence', `尾盘分歧 ${divergence.divergence} 未通过：${divergence.reason}。`, {
@@ -468,6 +511,7 @@ export function evaluateUsSignal(signal, context = {}) {
     }
   }
   let sizeUsd = orderKind === 'exploratory' ? US_EXPLORATORY_SIZE_USD : sizing.sizeUsd;
+  if (trial) sizeUsd = US_LIVE_ENDGAME_V2_SIZE_USD;
   if (divergence?.action === 'micro') {
     orderKind = 'divergence_micro';
     sizeUsd = divergence.sizeUsd;
@@ -548,7 +592,7 @@ export function evaluateUsSignal(signal, context = {}) {
     sizeUsd
   });
   const placeCode = orderKind === 'exploratory' || orderKind === 'divergence_micro' ? orderKind : 'pass';
-  return decision('place', placeCode, exploratoryReason || '通过 v3.4 门控。', {
+  return decision('place', placeCode, exploratoryReason || '通过 v3.5 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,

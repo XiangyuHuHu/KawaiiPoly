@@ -14,6 +14,9 @@ import {
   US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD,
   US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL,
   US_LIVE_ENDGAME_SCORE_MAX_AGE_MS,
+  US_LIVE_ENDGAME_V2_MAX_PRICE,
+  US_LIVE_ENDGAME_V2_MIN_MODEL,
+  liveEndgameV2Enabled,
   US_SOCCER_PAPER_MAX_PRICE,
   US_SOCCER_PAPER_MIN_MODEL,
   US_SOCCER_PAPER_PHASES
@@ -51,7 +54,9 @@ export function endgameDivergenceGate({
   scoreAgeMs = null,
   scoreSampledAt = null,
   now = new Date(),
-  rules = US_RULES
+  rules = US_RULES,
+  agreeMin = null,
+  allowMicro = true
 } = {}) {
   const edge = rules?.edge || {};
   if (edge.liveEndgameDivergenceEnabled === false) {
@@ -67,7 +72,7 @@ export function endgameDivergenceGate({
   if (!(divergence > gap)) {
     return { action: 'pass', reason: 'under_divergence', divergence };
   }
-  const agreeMin = finite(edge.liveEndgameDivergenceMinModel) ?? US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL;
+  const agreeFloor = finite(agreeMin) ?? finite(edge.liveEndgameDivergenceMinModel) ?? US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL;
   const maxAge = finite(edge.liveEndgameScoreMaxAgeMs) ?? US_LIVE_ENDGAME_SCORE_MAX_AGE_MS;
   const rawFallback = finite(edge.liveEndgameDivergenceFallbackUsd);
   const fallback = rawFallback != null && rawFallback > 0
@@ -76,12 +81,13 @@ export function endgameDivergenceGate({
   const espn = finite(espnProb);
   const pinnacle = finite(pinnacleProb);
   if (espn == null && pinnacle == null) {
+    if (!allowMicro) return { action: 'skip', reason: 'sources_unavailable', divergence };
     return { action: 'micro', reason: 'sources_unavailable', divergence, sizeUsd: fallback };
   }
   const age = resolveScoreAgeMs({ scoreAgeMs, scoreSampledAt, now });
   const fresh = age != null && age >= 0 && age <= maxAge;
-  const espnOk = espn != null && espn + 1e-12 >= agreeMin;
-  const pinOk = pinnacle != null && pinnacle + 1e-12 >= agreeMin;
+  const espnOk = espn != null && espn + 1e-12 >= agreeFloor;
+  const pinOk = pinnacle != null && pinnacle + 1e-12 >= agreeFloor;
   if (espnOk && pinOk && fresh) {
     return { action: 'pass', reason: 'sources_agree', divergence };
   }
@@ -117,4 +123,53 @@ export function soccerFavoritePaper({
     return { would_signal_paper: false, reason: 'price' };
   }
   return { would_signal_paper: true, reason: 'soccer_favorite_paper' };
+}
+
+/**
+ * 尾盘试单是否过规则。深度、过期 BBO、日帽和现金在发信号和下单时再查。
+ * model − ask > 0.10 时两边都要 ≥ 试单地板，且比分/时钟新鲜，否则跳过。
+ */
+export function endgameV2Rule({
+  phase,
+  modelProb,
+  ask,
+  espnProb = null,
+  pinnacleProb = null,
+  scoreAgeMs = null,
+  scoreSampledAt = null,
+  now = new Date(),
+  rules = US_RULES,
+  enabled = liveEndgameV2Enabled()
+} = {}) {
+  if (!enabled) return { pass: false, action: 'skip', reason: 'disabled', divergence: null };
+  const minModel = finite(rules?.edge?.liveEndgameV2MinModel) ?? US_LIVE_ENDGAME_V2_MIN_MODEL;
+  const maxPrice = finite(rules?.edge?.liveEndgameV2MaxPrice) ?? US_LIVE_ENDGAME_V2_MAX_PRICE;
+  if (phase !== 'endgame') return { pass: false, action: 'skip', reason: 'not_endgame', divergence: null };
+  const model = finite(modelProb);
+  const price = finite(ask);
+  if (model == null) return { pass: false, action: 'skip', reason: 'no_model', divergence: null };
+  if (price == null || !(price > 0) || price - maxPrice > 1e-9) {
+    return { pass: false, action: 'skip', reason: 'price', divergence: model == null ? null : round4(model - (price ?? 0)) };
+  }
+  if (model + 1e-12 < minModel) {
+    return { pass: false, action: 'skip', reason: 'model_floor', divergence: round4(model - price) };
+  }
+  const gate = endgameDivergenceGate({
+    modelProb: model,
+    ask: price,
+    espnProb,
+    pinnacleProb,
+    scoreAgeMs,
+    scoreSampledAt,
+    now,
+    rules,
+    agreeMin: minModel,
+    allowMicro: false
+  });
+  return {
+    pass: gate.action === 'pass',
+    action: gate.action,
+    reason: gate.reason,
+    divergence: gate.divergence
+  };
 }

@@ -45,7 +45,7 @@ import { US_RULES } from '../src/polymarketUs/rules.js';
 const NOW = new Date('2026-10-19T20:10:00.000Z');
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('BTC caps, cash reserve, and endgame floors stay put in v3.4', () => {
+test('BTC caps, cash reserve, and endgame floors stay put in v3.5', () => {
   assert.equal(US_BTC_MISPRICE_MIN_MODEL, 0.56);
   assert.equal(US_CASH_RESERVE_USD, 15);
   assert.equal(US_DAILY_CAPS.btc_misprice, 8);
@@ -53,6 +53,7 @@ test('BTC caps, cash reserve, and endgame floors stay put in v3.4', () => {
   assert.equal(US_SIZE_DEFAULT_USD, 2);
   assert.equal(US_LIVE_ENDGAME_MIN_MODEL, 0.88);
   assert.equal(US_LIVE_ENDGAME_MAX_PRICE, 0.95);
+  assert.equal(US_DAILY_CAPS.live_endgame_v2, 6);
   assert.equal(US_LIVE_ENDGAME_DIVERGENCE, 0.10);
   assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
   assert.equal(US_RULES.edge.liveEndgameMaxPrice, 0.95);
@@ -703,5 +704,73 @@ test('trade quotes keep priority and observation quotes do not fire after a 429'
     assert.equal(calls, 2);
   } finally {
     resetGatewayLimiter();
+  }
+});
+
+test('endgame v2 marks rule_pass and publishes a one-dollar signal without placing', async () => {
+  const at = rulePassForSide({
+    sport: 'nfl',
+    phase: 'endgame',
+    modelProb: 0.70,
+    ask: 0.90,
+    pinnacleProb: 0.70,
+    espnProb: 0.70,
+    scoreAgeMs: 1000
+  });
+  assert.equal(at.endgame_v2.pass, true);
+  assert.equal(at.would_signal, false);
+  const below = rulePassForSide({ sport: 'nfl', phase: 'endgame', modelProb: 0.699, ask: 0.8, pinnacleProb: 0.699 });
+  assert.equal(below.endgame_v2.pass, false);
+  assert.equal(below.endgame_v2.reason, 'model_floor');
+  const early = rulePassForSide({ sport: 'soccer', phase: 'mid', modelProb: 0.82, ask: 0.7, pinnacleProb: 0.82 });
+  assert.equal(early.endgame_v2.reason, 'not_endgame');
+  const gap = rulePassForSide({
+    sport: 'nfl',
+    phase: 'endgame',
+    modelProb: 0.96,
+    ask: 0.83,
+    pinnacleProb: 0.96,
+    scoreAgeMs: 1000
+  });
+  assert.equal(gap.endgame_v2.pass, false);
+  assert.equal(gap.would_signal, false);
+
+  const root = await mkdtemp(join(tmpdir(), 'us-live-v2-'));
+  try {
+    const summary = await runLiveObservations({
+      now: new Date('2026-10-19T21:40:00.000Z'),
+      ledgerRoot: root,
+      quoteGapMs: 0,
+      listEvents: async () => [liveEvent({ minute: '80' })],
+      getBbo: async () => ({
+        bestAsk: 0.8,
+        bestBid: 0.78,
+        longAsk: 0.8,
+        shortAsk: 0.22,
+        askShares: 20,
+        bidShares: 20,
+        cacheAgeMs: 0
+      }),
+      loadSources: async () => ({
+        pinnacle: [{ home: 'Tottenham', away: 'Coventry City', homeProb: 0.78, awayProb: 0.12, drawProb: 0.1 }],
+        espn: [],
+        errors: []
+      })
+    });
+    assert.equal(summary.signals.published, 1);
+    const pending = (await readFile(usPaths(root).pending, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0].sector, 'live_endgame_v2');
+    assert.equal(pending[0].size_usd, 1);
+    assert.equal(pending[0].side, 'Yes');
+    assert.equal(pending[0].model_prob, 0.78);
+    assert.equal(pending[0].auto_order.scanner_places_orders, false);
+    const logged = JSON.parse((await readFile(usPaths(root).liveObservations, 'utf8')).trim().split('\n')[0]);
+    assert.equal(logged.rule_pass.endgame_v2.pass, true);
+    assert.equal(logged.rule_pass.would_signal, false);
+    assert.equal(logged.signal_id, pending[0].id);
+    await assert.rejects(readFile(usPaths(root).realOrders, 'utf8'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
