@@ -2,6 +2,8 @@ import { US_SECTORS } from './constants.js';
 
 const SECTOR_ALIASES = new Map([
   ['live', 'live'],
+  ['live_endgame_v2', 'live_endgame_v2'],
+  ['live-endgame-v2', 'live_endgame_v2'],
   ['live_sports', 'live'],
   ['sports_live', 'live'],
   ['momentum', 'momentum'],

@@ -51,8 +51,8 @@ function place(overrides = {}, context = {}) {
   });
 }
 
-test('SCAN_SPEC v3.4 caps, edges, and momentum scale are constants', () => {
-  assert.equal(US_SPEC_VERSION, 'v3.4');
+test('SCAN_SPEC v3.5 caps, edges, and momentum scale are constants', () => {
+  assert.equal(US_SPEC_VERSION, 'v3.5');
   assert.deepEqual(US_DAILY_CAPS, {
     live: 10,
     momentum: 15,
@@ -61,7 +61,8 @@ test('SCAN_SPEC v3.4 caps, edges, and momentum scale are constants', () => {
     weather: 4,
     macro: 3,
     crypto: 4,
-    master: 4
+    master: 4,
+    live_endgame_v2: 6
   });
   assert.equal(US_EDGE_STANDARD, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
@@ -579,6 +580,128 @@ test('live in-play uses 4pp up to 0.95 and endgame allows a high model', () => {
   assert.equal(agreed.action, 'place');
   assert.equal(agreed.code, 'pass');
   assert.equal(agreed.sizeUsd, 2);
+});
+
+test('live endgame v2 is a one-dollar trial and does not double-buy', () => {
+  const trial = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.75,
+    limit_price: 0.8,
+    ask: 0.8,
+    liquidity_usd: 20,
+    slug: 'aec-nfl-trial'
+  });
+  assert.equal(trial.action, 'place');
+  assert.equal(trial.sizeUsd, 1);
+  assert.equal(trial.sector, 'live_endgame_v2');
+  const rich = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.91,
+    ask: 0.91,
+    slug: 'aec-nfl-rich'
+  });
+  assert.equal(rich.code, 'price_band');
+  const low = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.69,
+    limit_price: 0.6,
+    ask: 0.6,
+    slug: 'aec-nfl-low'
+  });
+  assert.equal(low.code, 'endgame_v2_model');
+  const divergent = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.85,
+    limit_price: 0.7,
+    ask: 0.7,
+    pinnacle_prob: 0.85,
+    slug: 'aec-nfl-gap'
+  });
+  assert.equal(divergent.code, 'endgame_divergence');
+  const agreed = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.85,
+    limit_price: 0.7,
+    ask: 0.7,
+    espn_prob: 0.8,
+    pinnacle_prob: 0.82,
+    score_sampled_at: new Date(WED_OPEN.getTime() - 10_000).toISOString(),
+    slug: 'aec-nfl-agree'
+  });
+  assert.equal(agreed.action, 'place');
+  assert.equal(agreed.sizeUsd, 1);
+  const stale = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    bbo_at: new Date(WED_OPEN.getTime() - 4 * 60 * 1000).toISOString(),
+    slug: 'aec-nfl-stale'
+  });
+  assert.equal(stale.code, 'stale_bbo');
+  const thin = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    liquidity_usd: 0,
+    slug: 'aec-nfl-thin'
+  });
+  assert.equal(thin.code, 'depth');
+  const capped = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-cap'
+  }, { dailyCounts: { live_endgame_v2: 6 } });
+  assert.equal(capped.code, 'daily_cap');
+  const reserve = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-cash'
+  }, { buyingPower: 15.5 });
+  assert.equal(reserve.code, 'cash_reserve');
+  const sameMarket = place({
+    sector: 'live_endgame_v2',
+    side: 'No',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-trial'
+  }, {
+    marketTakes: [{ slug: 'aec-nfl-trial', side: 'Yes', sector: 'live_endgame_v2', endgame: true }]
+  });
+  assert.equal(sameMarket.code, 'one_per_market');
+  const oldBlocked = place({
+    sector: 'live',
+    endgame: true,
+    model_prob: 0.91,
+    limit_price: 0.9,
+    ask: 0.9,
+    slug: 'aec-nfl-trial'
+  }, {
+    marketTakes: [{ slug: 'aec-nfl-trial', side: 'Yes', sector: 'live_endgame_v2', endgame: true }]
+  });
+  assert.equal(oldBlocked.code, 'duplicate_market_side');
+  const previous = process.env.US_LIVE_ENDGAME_V2_ENABLED;
+  process.env.US_LIVE_ENDGAME_V2_ENABLED = 'false';
+  try {
+    const off = place({
+      sector: 'live_endgame_v2',
+      model_prob: 0.8,
+      limit_price: 0.8,
+      ask: 0.8,
+      slug: 'aec-nfl-off'
+    });
+    assert.equal(off.code, 'live_endgame_v2_disabled');
+  } finally {
+    if (previous === undefined) delete process.env.US_LIVE_ENDGAME_V2_ENABLED;
+    else process.env.US_LIVE_ENDGAME_V2_ENABLED = previous;
+  }
 });
 
 test('dry-run stays on unless live flag, dry-run off, and both keys are set', () => {

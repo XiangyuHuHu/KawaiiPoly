@@ -163,6 +163,12 @@ export async function runPolymarketUsCycle(options = {}) {
   const brakes = await syncSectorBrakes(config.ledgerDir, now);
   const parts = pacificParts(now);
   const realIds = orders.filter(isRealFill).map((order) => order.signal_id).filter(Boolean);
+  const marketTakes = orders.filter((order) => isRealFill(order) && String(order.time_pt || '').startsWith(parts.dateKey)).map((order) => ({
+    slug: order.slug,
+    side: order.side,
+    sector: order.sector,
+    endgame: order.endgame === true || order.live_kind === 'endgame' || order.live_phase === 'endgame'
+  }));
   const dryIds = orders.filter((order) => order.dry_run).map((order) => order.signal_id).filter(Boolean);
   const dailyCounts = countSectorFills(orders, parts.dateKey);
   const stats = summarizeSectorStats(orders);
@@ -181,8 +187,12 @@ export async function runPolymarketUsCycle(options = {}) {
     openWindows = openWindows.concat(windowsFromPositions(positions), windowsFromOpenOrders(openOrders));
   }
 
+  const wanted = options.sector ? normalizeSector(options.sector) : null;
+  const signals = wanted
+    ? loaded.signals.filter((row) => normalizeSector(row.sector) === wanted)
+    : loaded.signals;
   const results = [];
-  for (const signal of loaded.signals) {
+  for (const signal of signals) {
     const resolved = await resolveQuote(signal, {
       gateway,
       now,
@@ -201,6 +211,7 @@ export async function runPolymarketUsCycle(options = {}) {
       dryIds,
       dryRun: config.dryRun,
       sectorPauses: brakes.paused,
+      marketTakes,
       bboMaxAgeMs: config.bboMaxAgeMs,
       scheduleWindowMinutes: config.scheduleWindowMinutes,
       cashReserveUsd: config.cashReserveUsd
@@ -233,6 +244,8 @@ export async function runPolymarketUsCycle(options = {}) {
         p_used: decision.pUsed ?? decision.model_prob ?? null,
         entry: decision.limitPrice,
         order_kind: decision.order_kind || 'normal',
+        live_kind: signal.live_kind || signal.liveKind || null,
+        endgame: signal.endgame === true || signal.live_kind === 'endgame' || signal.live_phase === 'endgame',
         order_payload: decision.order,
         window_id: windowKey(signal),
         resolution_source: decision.sector === 'btc_misprice' || decision.sector === 'momentum'
@@ -258,6 +271,12 @@ export async function runPolymarketUsCycle(options = {}) {
         await appendJsonl(paths.realOrders, row);
         if (decision.sector === 'momentum') await appendJsonl(paths.momentum, row);
         openWindows.push({ slug: row.slug, windowId: row.window_id, side: decision.side });
+        marketTakes.push({
+          slug: row.slug,
+          side: decision.side,
+          sector: decision.sector,
+          endgame: row.endgame === true
+        });
         if (config.dryRun) dryIds.push(decision.signal_id);
         else realIds.push(decision.signal_id);
         decision.fill_status = row.fill_status;

@@ -61,7 +61,7 @@ test('dry-run turns a pending SIGNAL into an order payload and does not call fet
   const ledger = await readFile(join(dir, 'real-orders.jsonl'), 'utf8');
   const row = JSON.parse(ledger.trim());
   assert.equal(row.venue, 'polymarket_us');
-  assert.equal(row.spec, 'v3.4');
+  assert.equal(row.spec, 'v3.5');
   assert.equal(row.dry_run, true);
   assert.equal(row.amount_usd, 2);
   assert.equal(row.order_kind, 'normal');

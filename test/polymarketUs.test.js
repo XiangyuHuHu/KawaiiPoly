@@ -78,7 +78,7 @@ test('US and international endpoints stay separate', () => {
     assert.equal(config.polymarketUs.perTradeConfirm, false);
     assert.equal(config.polymarketUs.dryRun, true);
     assert.equal(config.polymarketUs.liveTradingEnabled, false);
-    assert.match(String(config.polymarketUs.specVersion), /3\.4/);
+    assert.match(String(config.polymarketUs.specVersion), /3\.5/);
     assert.throws(
       () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
       /refuses international/
@@ -151,7 +151,7 @@ test('gateway reads markets, bbo, and book without Gamma', async () => {
   assert.equal(calls.some((url) => url.includes('gamma-api') || url.includes('clob.polymarket.com')), false);
 });
 
-test('v3.4 standing auto-order, edge, size, and sector caps', () => {
+test('v3.5 standing auto-order, edge, size, and sector caps', () => {
   const signal = evaluateUsSignal(passing());
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
@@ -161,7 +161,7 @@ test('v3.4 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
   assert.equal(signal.signal.p_used, 0.6303);
-  assert.equal(signal.signal.spec_version, '3.4');
+  assert.equal(signal.signal.spec_version, '3.5');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
   assert.equal(signal.signal.auto_order.per_trade_confirm, false);
@@ -389,7 +389,7 @@ test('v3.4 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.4');
+  assert.equal(US_RULES.specVersion, '3.5');
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);
@@ -420,6 +420,10 @@ test('v3.4 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(US_RULES.dailyCaps.macro, 3);
   assert.equal(US_RULES.dailyCaps.crypto, 4);
   assert.equal(US_RULES.dailyCaps.master, 4);
+  assert.equal(US_RULES.dailyCaps.live_endgame_v2, 6);
+  assert.equal(US_RULES.edge.liveEndgameV2MinModel, 0.70);
+  assert.equal(US_RULES.edge.liveEndgameV2MaxPrice, 0.90);
+  assert.equal(US_RULES.edge.liveEndgameV2SizeUsd, 1);
   assert.equal(US_RULES.standingAutoOrder.perTradeConfirm, false);
   assert.equal(US_RULES.scannerPlacesOrders, false);
 });

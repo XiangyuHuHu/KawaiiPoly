@@ -1,10 +1,11 @@
 /**
- * SCAN_SPEC v3.4（2026-10-19）里必须执行的数字。
- * v3.3 的 BTC 错价、日帽、现金保留、仓位不变。v3.4 只加 Live 观察日志和尾盘分歧闸门。
+ * SCAN_SPEC v3.5（2026-10-20）里必须执行的数字。
+ * v3.3 的 BTC 错价、现金保留、胜率仓位不变。v3.4 是 Live 观察和尾盘分歧闸门。
+ * v3.5 加 Live 尾盘试单 live_endgame_v2：模型 ≥ 0.70、价格 ≤ 0.90、每笔 $1。
  * 扫描器可以改文案；下单以这里的常量为准。
  */
 
-export const US_SPEC_VERSION = 'v3.4';
+export const US_SPEC_VERSION = 'v3.5';
 export const US_LINE_ID = 'polymarket_us';
 
 export const US_GATEWAY_BASE = 'https://gateway.polymarket.us';
@@ -99,6 +100,22 @@ export const US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL = 0.88;
 export const US_LIVE_ENDGAME_SCORE_MAX_AGE_MS = 60_000;
 export const US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD = 1;
 export const US_LIVE_ENDGAME_DIVERGENCE_ENABLED = true;
+/**
+ * 尾盘试单。相位仍是现在的 endgame。模型 ≥ 0.70、卖价 ≤ 0.90，每笔 $1，日帽 6，每个市场每天一笔。
+ * 分歧闸门仍在：model − ask > 0.10 时要 ESPN 和 Pinnacle 都 ≥ 0.70，且比分/时钟新鲜，否则跳过，没有 $1 盲单。
+ * 关掉：环境变量 US_LIVE_ENDGAME_V2_ENABLED=false。默认开。
+ */
+export const US_LIVE_ENDGAME_V2_MIN_MODEL = 0.70;
+export const US_LIVE_ENDGAME_V2_MAX_PRICE = 0.90;
+export const US_LIVE_ENDGAME_V2_SIZE_USD = 1;
+export const US_LIVE_ENDGAME_V2_DAILY_CAP = 6;
+export const US_LIVE_ENDGAME_V2_ENABLED = true;
+
+export function liveEndgameV2Enabled(env = process.env) {
+  const raw = env?.US_LIVE_ENDGAME_V2_ENABLED;
+  if (raw == null || String(raw).trim() === '') return US_LIVE_ENDGAME_V2_ENABLED;
+  return !['0', 'false', 'off', 'no'].includes(String(raw).trim().toLowerCase());
+}
 /** 足球早/中/晚盘（75' 之前）Pinnacle 去水热门。只写观察日志，不下单。 */
 export const US_SOCCER_PAPER_MIN_MODEL = 0.80;
 export const US_SOCCER_PAPER_MAX_PRICE = 0.93;
@@ -151,7 +168,8 @@ export const US_DAILY_CAPS = Object.freeze({
   weather: 4,
   macro: 3,
   crypto: 4,
-  master: 4
+  master: 4,
+  live_endgame_v2: US_LIVE_ENDGAME_V2_DAILY_CAP
 });
 
 /** 周一到周五 PT 三个仍作标记的全板块钟点。半开区间 [start, start+window)。

@@ -1,6 +1,6 @@
-# Live 观察日志与尾盘分歧闸门（SCAN_SPEC v3.4）
+# Live 观察日志、尾盘分歧闸门与尾盘试单（SCAN_SPEC v3.5）
 
-v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位。只做两件事：把正在进行的美国站胜负盘记下来，以及在尾盘规则上加分歧闸门。
+v3.4 把正在进行的美国站胜负盘记下来，并给旧尾盘规则加分歧闸门。v3.5 不改 BTC 错价、现金保留 $15、旧尾盘地板 0.88 / 0.95、胜率仓位。它另开一个板块 `live_endgame_v2`：约 16 小时观察里，尾盘模型 ≥ 0.70 且卖价 ≤ 0.90 是正 ROI（n=9，6 场，100% 命中，ROI +19.5%）。这是小账户试单，每笔 $1。
 
 依据是 2026-10-19 对 175 场（10/12、10/13、10/17 PT）的回测：尾盘没有一组门槛是正 ROI；亏损集中在模型比卖价高出约 0.10 的单（例如模型 0.96、卖价 0.83）。唯一为正的一截是足球早/中盘热门（去水 ≥ 0.80、价格 ≤ 0.93，n=88，ROI +12%），先只记纸面。
 
@@ -32,7 +32,7 @@ v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位
 | `ask` / `bid` / `ask_depth` | 该方向卖价、买价、卖盘名义金额（价格 × 份额） |
 | `period` / `clock` / `score` | 美国站 `eventState` |
 | `phase` | `pregame` / `early` / `mid` / `late` / `endgame` |
-| `rule_pass` | 哪条规则过了或没过，以及原因。`would_signal_paper`、`observe_band`（`model_prob ≥ 0.60`）在这里 |
+| `rule_pass` | 哪条规则过了或没过，以及原因。`would_signal_paper`、`observe_band`（`model_prob ≥ 0.60`）、`endgame_v2` 在这里 |
 | `signal_id` | 已有 pending 信号才填，观察本身不写 SIGNAL |
 | `pinnacle_prob` / `espn_prob` / `score_sampled_at` / `score_age_ms` | 闸门和纸面标记用的附加字段 |
 
@@ -56,9 +56,25 @@ v3.4 不改 BTC 错价、现金保留 $15、日帽、板块刹车、胜率仓位
 
 常量：`US_LIVE_ENDGAME_DIVERGENCE`、`US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL`、`US_LIVE_ENDGAME_SCORE_MAX_AGE_MS`、`US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD`。`rules.edge` 引用同一组。
 
+## 尾盘试单 live_endgame_v2
+
+相位用现在的 endgame。`model_prob ≥ 0.70`（`US_LIVE_ENDGAME_V2_MIN_MODEL`）且 `ask ≤ 0.90`（`US_LIVE_ENDGAME_V2_MAX_PRICE`）。`rule_pass.endgame_v2.pass` 为 true 时才考虑下单。`model − ask > 0.10` 时，ESPN 和 Pinnacle 都要 ≥ 0.70，并且比分/时钟在 60 秒内，否则跳过。试单没有「两个来源都没有就下 $1」那条；旧的 0.88 规则仍保留那条。
+
+每笔 $1（`US_LIVE_ENDGAME_V2_SIZE_USD`）。这个板块日帽 6（`US_LIVE_ENDGAME_V2_DAILY_CAP`）。每个市场每天只下一笔。和旧尾盘规则不能买同一个市场的同一边。深度为 0、价差过大、BBO 过期，仍然不下。现金保留仍是 $15。板块刹车对 `live_endgame_v2` 同样生效。
+
+关掉试单：`US_LIVE_ENDGAME_V2_ENABLED=false`。默认开。关掉之后不再写这个板块的 SIGNAL，已有 pending 在下单时也会跳过。观察日志继续写。
+
+什么时候下单：
+
+1. `us:scan`（建议每 15 分钟）写观察日志，规则通过就追加 SIGNAL 到 `signals/pending.jsonl`。扫描本身不下单。
+2. `polymarket:us` 在同一条 15 分钟循环里读 pending，重新拉 BBO，再按日帽、保留现金、去重和刹车下单。
+3. `us:live-observe`（建议每 5 分钟）同样写日志并发 SIGNAL。如果这时还有未完成的 `live_endgame_v2` pending，它马上只下这个板块，走同一个 `runPolymarketUsCycle`。尾盘窗口短，不等到下一轮 15 分钟。其他板块仍只由 `polymarket:us` 下。
+
+已经下过的 SIGNAL 不会再下一遍。同一市场当天的第二笔试单会被丢掉。
+
 ## 足球热门（纸面）
 
-去水 ≥ 0.80 且价格 ≤ 0.93，相位是 early、mid 或 late（也就是 75' 之前，含回测里的早盘和中盘）。只认 Pinnacle 去水，不认 ESPN。`rule_pass.would_signal_paper = true`，`would_signal` 仍为 false。观察器不调用 `publishUsSignal`，不下单。
+去水 ≥ 0.80 且价格 ≤ 0.93，相位是 early、mid 或 late（也就是 75' 之前，含回测里的早盘和中盘）。只认 Pinnacle 去水，不认 ESPN。`rule_pass.would_signal_paper = true`，`would_signal` 仍为 false。这面纸面标记不下单。只有 `endgame_v2` 通过才会写 SIGNAL。
 
 ## 结算和网格
 
@@ -73,11 +89,12 @@ npm run us:live-analyze
 node scripts/analyze-live-observations.js [observations.jsonl] [settled.jsonl]
 ```
 
-默认网格是尾盘「model 门槛 × 价格帽」。门槛为 0.60、0.65、0.70、0.75、0.80、0.85、0.88、0.90、0.92、0.95，价格帽仍是 0.90、0.93、0.95、0.99。每个市场×方向只取第一次满足的卖价，按 $1 计算 ROI。另外打印足球纸面那一截。研究带从 0.60 起；真正下单的尾盘地板仍是 0.88 / 0.95。
+默认网格是尾盘「model 门槛 × 价格帽」。门槛为 0.60、0.65、0.70、0.75、0.80、0.85、0.88、0.90、0.92、0.95，价格帽仍是 0.90、0.93、0.95、0.99。每个市场×方向只取第一次满足的卖价，按 $1 计算 ROI。另外打印足球纸面那一截。研究带从 0.60 起。试单地板是 0.70 / 0.90；旧尾盘下单地板仍是 0.88 / 0.95。
 
 ## 回滚
 
-1. 关掉闸门：把 `src/polymarketUs/constants.js` 里的 `US_LIVE_ENDGAME_DIVERGENCE_ENABLED` 设为 `false`。地板 0.88 和价格帽 0.95 保持。扫描和下单都读这个常量。
-2. 停止记日志：去掉 `us:live-observe` 的 cron。`us:scan` 里的 `observeLive` 可以不传，现有扫描测试就是这样。已经写下的 jsonl 可以留着。
-3. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.4`，在 `rules.js` 是 `3.4`。退回 v3.3 时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameDivergence*`、`soccerPaper*` 与 `liveObserveMinModel`。`observe_band` 只是研究标记，删掉不影响已写下的 jsonl。
-4. BTC 门槛、`US_CASH_RESERVE_USD = 15`、日帽、板块刹车、胜率仓位都不要在这次回滚里动。
+1. 关掉试单：`US_LIVE_ENDGAME_V2_ENABLED=false`。旧尾盘 0.88 / 0.95 还在。已经写下的观察日志留着。
+2. 关掉分歧闸门：把 `src/polymarketUs/constants.js` 里的 `US_LIVE_ENDGAME_DIVERGENCE_ENABLED` 设为 `false`。地板 0.88 和价格帽 0.95 保持。扫描和下单都读这个常量。试单自己的分歧检查用 `allowMicro: false`，不受这条 $1 盲单影响。
+3. 停止记日志：去掉 `us:live-observe` 的 cron。`us:scan` 里的 `observeLive` 可以不传，现有扫描测试就是这样。已经写下的 jsonl 可以留着。5 分钟那条也会停掉试单的加急下单，15 分钟的 `polymarket:us` 仍会吃掉还在 pending 里的试单，除非同时把环境变量关掉。
+4. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.5`，在 `rules.js` 是 `3.5`。退回时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameV2*` 和日帽里的 `live_endgame_v2`。
+5. BTC 门槛、`US_CASH_RESERVE_USD = 15`、其他板块日帽、板块刹车、胜率仓位都不要在这次回滚里动。

@@ -380,7 +380,7 @@ export async function runUsScan({
   const collectLive = async () => {
     if (!observeLive) return { appended: 0, skipped: true };
     try {
-      return await observeLive({ now, ledgerRoot, rules });
+      return await observeLive({ now, ledgerRoot, workspaceRoot, rules });
     } catch (error) {
       return {
         appended: 0,
