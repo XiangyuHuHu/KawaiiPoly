@@ -17,6 +17,7 @@
     "us:live-observe": "node scripts/us-scan.js live-observe",
     "us:live-analyze": "node scripts/analyze-live-observations.js",
     "test": "node --test test/*.test.js",
+    "backtest:jev-btc-5m": "node scripts/backtest-jev-btc-5m.mjs",
     "check": "node --check server.js"
   },
   "dependencies": {
