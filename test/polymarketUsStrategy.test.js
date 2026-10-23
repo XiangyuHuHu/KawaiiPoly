@@ -1,14 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   US_BBO_MAX_AGE_MS,
   US_DAILY_CAPS,
   US_EDGE_BTC_MISPRICE,
   US_EDGE_STANDARD,
+  US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+  US_LIVE_ENDGAME_V2_MAX_PRICE,
+  US_LIVE_ENDGAME_V2_MIN_MODEL,
   US_MOMENTUM_MAX_PRICE,
   US_MOMENTUM_TRIGGER_SCALE,
-  US_SPEC_VERSION
+  US_SPEC_VERSION,
+  liveEndgameV2MinModel
 } from '../src/polymarketUs/constants.js';
+import {
+  countV2CashFloorBreaches,
+  evaluateUsCashReserve,
+  formatV2SkipHistogram
+} from '../src/polymarketUs/cashReserve.js';
+import { evaluateUsSignal as evaluateScanSignal } from '../src/polymarketUs/evaluate.js';
+import { persistSignalStatuses } from '../src/polymarketUs/signals.js';
 import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
 import {
   evaluateUsSchedule,
@@ -51,8 +65,14 @@ function place(overrides = {}, context = {}) {
   });
 }
 
-test('SCAN_SPEC v3.5 caps, edges, and momentum scale are constants', () => {
-  assert.equal(US_SPEC_VERSION, 'v3.5');
+test('SCAN_SPEC v3.6 caps, edges, and momentum scale are constants', () => {
+  assert.equal(US_SPEC_VERSION, 'v3.6');
+  assert.equal(US_LIVE_ENDGAME_V2_MIN_MODEL, 0.70);
+  assert.equal(US_LIVE_ENDGAME_V2_MAX_PRICE, 0.90);
+  assert.equal(US_LIVE_ENDGAME_V2_CASH_RESERVE_USD, 14);
+  assert.equal(liveEndgameV2MinModel({}), 0.70);
+  assert.equal(liveEndgameV2MinModel({ US_LIVE_ENDGAME_V2_MIN_MODEL: '0.65' }), 0.65);
+  assert.equal(liveEndgameV2MinModel({ US_LIVE_ENDGAME_V2_MIN_MODEL: 'nope' }), 0.70);
   assert.deepEqual(US_DAILY_CAPS, {
     live: 10,
     momentum: 15,
@@ -187,6 +207,7 @@ test('daily cap, one-sided window, intl url, and low confidence stop the order',
 test('cash reserve blocks a live-sized order that would leave less than $15', () => {
   const result = place({}, { buyingPower: 16, cashReserveUsd: 15 });
   assert.equal(result.code, 'cash_reserve');
+  assert.equal(result.cash_reserve_checked, true);
   const ok = place({}, { buyingPower: 20, cashReserveUsd: 15 });
   assert.equal(ok.action, 'place');
 });
@@ -664,7 +685,18 @@ test('live endgame v2 is a one-dollar trial and does not double-buy', () => {
     ask: 0.8,
     slug: 'aec-nfl-cash'
   }, { buyingPower: 15.5 });
-  assert.equal(reserve.code, 'cash_reserve');
+  assert.equal(reserve.action, 'place');
+  assert.equal(reserve.cash_reserve_checked, true);
+  assert.equal(reserve.v2_cash_floor_breach, true);
+  const underFloor = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-cash-low'
+  }, { buyingPower: 14.2 });
+  assert.equal(underFloor.code, 'cash_reserve');
+  assert.equal(underFloor.cash_reserve_checked, true);
   const sameMarket = place({
     sector: 'live_endgame_v2',
     side: 'No',
@@ -722,4 +754,166 @@ test('dry-run stays on unless live flag, dry-run off, and both keys are set', ()
   assert.equal(live.gatewayBaseUrl, 'https://gateway.polymarket.us');
   assert.equal(live.apiBaseUrl, 'https://api.polymarket.us');
   assert.equal(live.line, 'polymarket_us');
+});
+
+function v2Scan(overrides = {}) {
+  return {
+    now: WED_OPEN,
+    sector: 'live_endgame_v2',
+    side: 'Yes',
+    slug: 'aec-nfl-cash-scan',
+    modelProb: 0.8,
+    ask: 0.8,
+    bid: 0.78,
+    spreadCents: 2,
+    depthUsd: 20,
+    liquidityUsd: 20,
+    resolutionRisk: 'Low',
+    confidence: 'High',
+    phase: 'endgame',
+    liveKind: 'endgame',
+    bboAgeMs: 0,
+    bboSampledAt: WED_OPEN.toISOString(),
+    ...overrides
+  };
+}
+
+test('live_endgame_v2 cash gate allows $1 at buying power 15.86 and keeps the $15 floor elsewhere', () => {
+  const allow = evaluateUsCashReserve({
+    buyingPower: 15.86,
+    sizeUsd: 1,
+    trial: true,
+    globalReserve: 15,
+    v2Reserve: 14
+  });
+  assert.equal(allow.ok, true);
+  assert.equal(allow.checked, true);
+  assert.equal(allow.floorBreach, true);
+  assert.equal(allow.reserve, 14);
+
+  const globalOnly = evaluateUsCashReserve({
+    buyingPower: 15.86,
+    sizeUsd: 1,
+    trial: false,
+    globalReserve: 15
+  });
+  assert.equal(globalOnly.ok, false);
+  assert.equal(globalOnly.code, 'cash_reserve');
+  assert.equal(globalOnly.checked, true);
+
+  const broke = evaluateUsCashReserve({
+    buyingPower: 0.5,
+    sizeUsd: 1,
+    trial: true,
+    globalReserve: 15,
+    v2Reserve: 14
+  });
+  assert.equal(broke.ok, false);
+  assert.equal(broke.code, 'insufficient_cash');
+  assert.equal(broke.checked, true);
+
+  const order = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-bp'
+  }, { buyingPower: 15.86, cashReserveUsd: 15 });
+  assert.equal(order.action, 'place');
+  assert.equal(order.sizeUsd, 1);
+  assert.equal(order.cash_reserve_checked, true);
+  assert.equal(order.v2_cash_floor_breach, true);
+
+  const other = place({}, { buyingPower: 15.86, cashReserveUsd: 15 });
+  assert.equal(other.code, 'cash_reserve');
+  assert.equal(other.cash_reserve_checked, true);
+
+  const micro = place({
+    sector: 'live',
+    endgame: true,
+    model_prob: 0.96,
+    limit_price: 0.83,
+    ask: 0.83
+  }, { buyingPower: 15.86, cashReserveUsd: 15 });
+  assert.equal(micro.sizeUsd, 1);
+  assert.equal(micro.code, 'cash_reserve');
+  assert.equal(micro.cash_reserve_checked, true);
+
+  const empty = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-empty'
+  }, { buyingPower: 0.5, cashReserveUsd: 15 });
+  assert.equal(empty.code, 'insufficient_cash');
+  assert.equal(empty.cash_reserve_checked, true);
+
+  const second = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    slug: 'aec-nfl-second'
+  }, { buyingPower: 15.86, cashReserveUsd: 15, v2CashBreachFills: 1 });
+  assert.equal(second.code, 'cash_reserve');
+  assert.match(second.reason, /豁免已用完/);
+  assert.match(second.reason, /\$15/);
+
+  const scanned = evaluateScanSignal(v2Scan({ buyingPower: 15.86 }));
+  assert.equal(scanned.ok, true);
+  assert.equal(scanned.signal.size_usd, 1);
+  assert.equal(scanned.signal.v2_cash_floor_breach, true);
+  assert.equal(scanned.signal.gates.cash_reserve_checked, true);
+  assert.equal(scanned.signal.gates.cash_reserve_usd, 14);
+  assert.equal(evaluateScanSignal(v2Scan({ buyingPower: 0.5 })).reason, 'insufficient_cash');
+  assert.equal(evaluateScanSignal(v2Scan({ buyingPower: 15.86, v2CashBreachFills: 1 })).reason, 'cash_reserve');
+
+  assert.equal(countV2CashFloorBreaches([
+    { sector: 'live_endgame_v2', signal_id: 'v2:a', fill_status: 'filled', v2_cash_floor_breach: true },
+    { sector: 'live_endgame_v2', signal_id: 'v2:a', fill_status: 'filled', v2_cash_floor_breach: true },
+    { sector: 'weather', signal_id: 'w:1', fill_status: 'filled', v2_cash_floor_breach: true },
+    { sector: 'live_endgame_v2', signal_id: 'v2:dry', fill_status: 'filled', dry_run: true, v2_cash_floor_breach: true }
+  ], [
+    { sector: 'live_endgame_v2', id: 'v2:a', status: 'pending', v2_cash_floor_breach: true },
+    { sector: 'live_endgame_v2', id: 'v2:b', status: 'pending', v2_cash_floor_breach: true },
+    { sector: 'live_endgame_v2', id: 'v2:c', status: 'skipped', v2_cash_floor_breach: true }
+  ]), 2);
+
+  assert.equal(formatV2SkipHistogram([
+    'aec-nfl:cash_reserve',
+    'cash_reserve',
+    'aec-nba:stale-bbo',
+    'endgame_divergence',
+    'depth'
+  ]), 'cash_reserve:2,depth:1,divergence:1,stale_bbo:1');
+  assert.equal(formatV2SkipHistogram([]), 'none');
+});
+
+test('skipped SIGNAL persists skip_reason and cash_reserve_checked', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'us-v2-skip-'));
+  try {
+    const pending = join(dir, 'pending.jsonl');
+    await mkdir(dir, { recursive: true });
+    await writeFile(pending, `${JSON.stringify({
+      id: 'live_endgame_v2:aec:yes',
+      sector: 'live_endgame_v2',
+      slug: 'aec',
+      side: 'Yes',
+      status: 'pending'
+    })}\n`);
+    await persistSignalStatuses([{
+      updateStatus: true,
+      status: 'skipped',
+      code: 'cash_reserve',
+      cash_reserve_checked: true,
+      signal: { _origin: { kind: 'jsonl', file: pending, index: 0 } }
+    }]);
+    const saved = JSON.parse((await readFile(pending, 'utf8')).trim());
+    assert.equal(saved.status, 'skipped');
+    assert.equal(saved.skip_reason, 'cash_reserve');
+    assert.equal(saved.cash_reserve_checked, true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

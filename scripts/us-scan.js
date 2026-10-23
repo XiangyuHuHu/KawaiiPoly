@@ -1,3 +1,4 @@
+import { formatV2SkipHistogram } from '../src/polymarketUs/cashReserve.js';
 import {
   US_GATEWAY_OBSERVE_GAP_MS,
   US_GATEWAY_RATE_LIMIT_BACKOFF_MS,
@@ -51,6 +52,7 @@ if (command === 'settle') {
   const result = await runLiveObservations({ ledgerRoot, workspaceRoot, gateway });
   let placed = 0;
   let placeError = '';
+  const skipReasons = [...(result.signals?.skipped || [])];
   if (liveEndgameV2Enabled()) {
     const pending = await readJsonl(usPaths(ledgerRoot, workspaceRoot).pending);
     const waiting = pending.filter((row) => (
@@ -64,12 +66,26 @@ if (command === 'settle') {
           config: { ...buildPolymarketUsConfig(), ledgerDir: ledgerRoot, workspaceDir: workspaceRoot }
         });
         placed = report.placed || 0;
+        for (const row of report.results || []) {
+          if (row.action === 'skip' && row.code) skipReasons.push(row.code);
+        }
       } catch (error) {
         placeError = String(error?.message || error).slice(0, 160);
       }
     }
   }
-  console.log(`us-live-observe appended=${result.appended} dup=${result.skippedDup || 0} markets=${result.markets || 0} errors=${result.errors?.length || 0} v2-signals=${result.signals?.published || 0} v2-placed=${placed}${placeError ? ` v2-place-error=${placeError}` : ''}`);
+  const v2Skip = formatV2SkipHistogram(skipReasons);
+  try {
+    await writeStatus(ledgerRoot, 'last-live-observe.json', {
+      ...result,
+      v2Placed: placed,
+      v2Skip,
+      v2PlaceError: placeError || null
+    });
+  } catch {
+    // 摘要行仍打印。状态文件失败不让观察退出。
+  }
+  console.log(`us-live-observe appended=${result.appended} dup=${result.skippedDup || 0} markets=${result.markets || 0} errors=${result.errors?.length || 0} v2-signals=${result.signals?.published || 0} v2-placed=${placed} v2-skip=${v2Skip}${placeError ? ` v2-place-error=${placeError}` : ''}`);
 } else if (command === 'scan') {
   const gateway = new PolymarketUsGateway();
   const marketData = new PublicMarketDataClient();

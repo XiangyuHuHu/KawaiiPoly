@@ -1,7 +1,8 @@
 /**
- * Polymarket US scan rules from SCAN_SPEC v3.5.
+ * Polymarket US scan rules from SCAN_SPEC v3.6.
  * v3.3 tightens BTC misprice. v3.4 adds the live observation log and the
  * endgame divergence gate. v3.5 adds the live_endgame_v2 trial.
+ * v3.6 lowers only that trial's cash floor to $14, one breach of the $15 reserve.
  * Scanners write SIGNAL files and never place orders.
  * The bot may send the limit order without another chat confirmation.
  */
@@ -26,6 +27,8 @@ import {
   US_LIVE_ENDGAME_DIVERGENCE_FALLBACK_USD,
   US_LIVE_ENDGAME_DIVERGENCE_MIN_MODEL,
   US_LIVE_ENDGAME_SCORE_MAX_AGE_MS,
+  US_LIVE_ENDGAME_V2_CASH_BREACH_MAX,
+  US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
   US_LIVE_ENDGAME_V2_DAILY_CAP,
   US_LIVE_ENDGAME_V2_MAX_PRICE,
   US_LIVE_ENDGAME_V2_MIN_MODEL,
@@ -36,7 +39,7 @@ import {
   US_SOCCER_PAPER_PHASES
 } from './constants.js';
 
-export const US_SPEC_VERSION = '3.5';
+export const US_SPEC_VERSION = '3.6';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
 export const US_GATEWAY_ORIGIN = 'https://gateway.polymarket.us/v1';
@@ -124,7 +127,10 @@ export const US_RULES = Object.freeze({
     tier80MinSamples: 10,
     weakWinRate: 0.45,
     lossStreak: 3,
-    cashReserveUsd: 15
+    cashReserveUsd: 15,
+    // live_endgame_v2 only. Other sectors keep cashReserveUsd.
+    liveEndgameV2CashReserveUsd: US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+    liveEndgameV2CashBreachMax: US_LIVE_ENDGAME_V2_CASH_BREACH_MAX
   }),
   dailyCaps: Object.freeze({
     live: 10,

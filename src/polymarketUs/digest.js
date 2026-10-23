@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { settlementFromUsMarket } from './brti.js';
+import { US_SPEC_VERSION } from './rules.js';
 import { calibrationRecord } from './calibration.js';
 import { appendJsonl } from './ledger.js';
 import { readJsonl, usPaths } from './signals.js';
@@ -171,7 +172,7 @@ export async function runUsDigest({
   await writeFile(settlementPath, `${JSON.stringify({
     venue: 'polymarket.us',
     source: 'gateway.polymarket.us + real-orders.jsonl',
-    spec_version: '3.5',
+    spec_version: US_SPEC_VERSION,
     ...summary
   }, null, 2)}\n`);
   if (summary.changed) await writeFile(nightlyPath, `${summary.line}\n`);

@@ -17,6 +17,7 @@ import {
   US_LIVE_ENDGAME_V2_MAX_PRICE,
   US_LIVE_ENDGAME_V2_MIN_MODEL,
   liveEndgameV2Enabled,
+  liveEndgameV2MinModel,
   US_SOCCER_PAPER_MAX_PRICE,
   US_SOCCER_PAPER_MIN_MODEL,
   US_SOCCER_PAPER_PHASES
@@ -139,10 +140,14 @@ export function endgameV2Rule({
   scoreSampledAt = null,
   now = new Date(),
   rules = US_RULES,
-  enabled = liveEndgameV2Enabled()
+  enabled = liveEndgameV2Enabled(),
+  env = process.env
 } = {}) {
   if (!enabled) return { pass: false, action: 'skip', reason: 'disabled', divergence: null };
-  const minModel = finite(rules?.edge?.liveEndgameV2MinModel) ?? US_LIVE_ENDGAME_V2_MIN_MODEL;
+  const minModel = liveEndgameV2MinModel(
+    env,
+    finite(rules?.edge?.liveEndgameV2MinModel) ?? US_LIVE_ENDGAME_V2_MIN_MODEL
+  );
   const maxPrice = finite(rules?.edge?.liveEndgameV2MaxPrice) ?? US_LIVE_ENDGAME_V2_MAX_PRICE;
   if (phase !== 'endgame') return { pass: false, action: 'skip', reason: 'not_endgame', divergence: null };
   const model = finite(modelProb);

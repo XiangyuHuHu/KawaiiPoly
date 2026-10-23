@@ -1,4 +1,5 @@
 import { syncSectorBrakes } from './calibration.js';
+import { countV2CashFloorBreaches, v2BreachFillsForSignal } from './cashReserve.js';
 import { US_BTC_SHORT_RESOLUTION, US_COUNTED_FILL_STATUSES, US_SPEC_VERSION } from './constants.js';
 import { buildPolymarketUsConfig, publicUsConfig } from './config.js';
 import { PolymarketUsGateway, quoteForSide } from './gateway.js';
@@ -172,6 +173,8 @@ export async function runPolymarketUsCycle(options = {}) {
   const dryIds = orders.filter((order) => order.dry_run).map((order) => order.signal_id).filter(Boolean);
   const dailyCounts = countSectorFills(orders, parts.dateKey);
   const stats = summarizeSectorStats(orders);
+  const v2BreachBase = countV2CashFloorBreaches(orders, loaded.signals);
+  let extraV2Breaches = 0;
   let buyingPower = options.buyingPower ?? null;
   let account = null;
   let openWindows = windowsFromOrders(orders.filter((order) => isBlockingOrder(order, parts.dateKey)));
@@ -214,7 +217,8 @@ export async function runPolymarketUsCycle(options = {}) {
       marketTakes,
       bboMaxAgeMs: config.bboMaxAgeMs,
       scheduleWindowMinutes: config.scheduleWindowMinutes,
-      cashReserveUsd: config.cashReserveUsd
+      cashReserveUsd: config.cashReserveUsd,
+      v2CashBreachFills: v2BreachFillsForSignal(v2BreachBase + extraV2Breaches, signal)
     });
     decision.signal = signal;
 
@@ -251,7 +255,8 @@ export async function runPolymarketUsCycle(options = {}) {
         resolution_source: decision.sector === 'btc_misprice' || decision.sector === 'momentum'
           ? US_BTC_SHORT_RESOLUTION
           : (signal.resolution_source || signal.resolutionSource || null),
-        dry_run: config.dryRun
+        dry_run: config.dryRun,
+        v2_cash_floor_breach: false
       };
       try {
         if (config.dryRun) {
@@ -266,6 +271,10 @@ export async function runPolymarketUsCycle(options = {}) {
           decision.status = 'filled';
           decision.updateStatus = true;
           dailyCounts[decision.sector] += 1;
+          if (decision.v2_cash_floor_breach === true) {
+            row.v2_cash_floor_breach = true;
+            if (signal.v2_cash_floor_breach !== true) extraV2Breaches += 1;
+          }
           if (buyingPower != null) buyingPower -= decision.sizeUsd;
         }
         await appendJsonl(paths.realOrders, row);
@@ -316,6 +325,8 @@ export async function runPolymarketUsCycle(options = {}) {
       sizeUsd: row.sizeUsd ?? null,
       order_kind: row.order_kind || null,
       fill_status: row.fill_status || null,
+      cash_reserve_checked: row.cash_reserve_checked === true,
+      skip_reason: row.action === 'skip' ? (row.code || null) : null,
       order: row.order || null
     }))
   };

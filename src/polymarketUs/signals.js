@@ -261,26 +261,40 @@ export async function loadUsSignals({
   return { signals, paths };
 }
 
+function statusPatch(result, now = new Date()) {
+  const patch = {
+    status: result.status,
+    updated_at: now.toISOString()
+  };
+  if (result.status === 'skipped') patch.skip_reason = result.code || result.reason || 'skipped';
+  if (typeof result.cash_reserve_checked === 'boolean') {
+    patch.cash_reserve_checked = result.cash_reserve_checked;
+  }
+  return patch;
+}
+
 export async function persistSignalStatuses(results) {
   const jsonlGroups = new Map();
   const jsonFiles = [];
+  const now = new Date();
   for (const result of results) {
     if (!result?.updateStatus || !result?.signal?._origin) continue;
     const origin = result.signal._origin;
     if (origin.readonly) continue;
+    const patch = statusPatch(result, now);
     if (origin.kind === 'jsonl') {
       if (!jsonlGroups.has(origin.file)) jsonlGroups.set(origin.file, new Map());
-      jsonlGroups.get(origin.file).set(origin.index, result.status);
+      jsonlGroups.get(origin.file).set(origin.index, patch);
     } else if (origin.kind === 'json') {
-      jsonFiles.push({ file: origin.file, status: result.status });
+      jsonFiles.push({ file: origin.file, patch });
     }
   }
 
   for (const [file, updates] of jsonlGroups) {
     const rows = await readJsonl(file);
-    for (const [index, status] of updates) {
+    for (const [index, patch] of updates) {
       if (!rows[index]) continue;
-      rows[index] = { ...rows[index], status, updated_at: new Date().toISOString() };
+      rows[index] = { ...rows[index], ...patch };
     }
     await mkdir(dirname(file), { recursive: true });
     await writeFile(file, rows.map((row) => JSON.stringify(row)).join('\n') + (rows.length ? '\n' : ''), 'utf8');
@@ -289,8 +303,7 @@ export async function persistSignalStatuses(results) {
   for (const item of jsonFiles) {
     const row = await readJsonOrNull(item.file);
     if (!row) continue;
-    row.status = item.status;
-    row.updated_at = new Date().toISOString();
+    Object.assign(row, item.patch);
     await writeFile(item.file, `${JSON.stringify(row, null, 2)}\n`, 'utf8');
   }
 }

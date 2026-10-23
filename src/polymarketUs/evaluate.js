@@ -9,7 +9,15 @@ import {
   US_RULES,
   US_SPEC_VERSION
 } from './rules.js';
-import { US_EXPLORATORY_SIZE_USD, US_LIVE_ENDGAME_V2_SIZE_USD, liveEndgameV2Enabled } from './constants.js';
+import { evaluateUsCashReserve } from './cashReserve.js';
+import {
+  US_CASH_RESERVE_USD,
+  US_EXPLORATORY_SIZE_USD,
+  US_LIVE_ENDGAME_V2_CASH_BREACH_MAX,
+  US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+  US_LIVE_ENDGAME_V2_SIZE_USD,
+  liveEndgameV2Enabled
+} from './constants.js';
 import { endgameDivergenceGate, endgameV2Rule, resolveScoreAgeMs } from './liveGate.js';
 import { normalizeSector } from './shape.js';
 
@@ -292,7 +300,16 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   if (depthUsd + 1e-9 < sizeUsd) return reject('depth');
 
   const buyingPower = finite(input.buyingPower);
-  if (buyingPower != null && buyingPower - sizeUsd + 1e-9 < rules.size.cashReserveUsd) return reject('cash-reserve');
+  const cash = evaluateUsCashReserve({
+    buyingPower,
+    sizeUsd,
+    trial,
+    globalReserve: finite(rules.size?.cashReserveUsd) ?? US_CASH_RESERVE_USD,
+    v2Reserve: finite(rules.size?.liveEndgameV2CashReserveUsd) ?? US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+    breachFills: finite(input.v2CashBreachFills) ?? 0,
+    maxBreachFills: finite(rules.size?.liveEndgameV2CashBreachMax) ?? US_LIVE_ENDGAME_V2_CASH_BREACH_MAX
+  });
+  if (!cash.ok) return reject(cash.code);
 
   const slug = String(input.slug || '');
   if (!slug) return reject('slug');
@@ -319,6 +336,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     limit_price: round4(ask),
     size_usd: sizeUsd,
     order_kind: orderKind,
+    v2_cash_floor_breach: cash.floorBreach === true,
     edge,
     model_prob: round4(modelProb),
     model_p: roundProb(modelProb),
@@ -351,7 +369,8 @@ export function evaluateUsSignal(input, rules = US_RULES) {
       depth_usd: depthUsd,
       size_tier: sizing.tier,
       order_kind: orderKind,
-      cash_reserve_checked: buyingPower != null,
+      cash_reserve_checked: cash.checked,
+      cash_reserve_usd: cash.checked ? cash.reserve : null,
       endgame_divergence: (sector === 'live' && liveKind === 'endgame') || trial ? orderKind : null
     }
   };
