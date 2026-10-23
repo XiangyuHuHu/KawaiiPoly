@@ -8,6 +8,7 @@
  */
 
 import { open, stat } from 'node:fs/promises';
+import { formatV2SkipHistogram } from './cashReserve.js';
 import { US_GATEWAY_OBSERVE_GAP_MS } from './constants.js';
 import { appendJsonl, readJsonl } from './ledger.js';
 import { isObservePaused, isRateLimitError, noteGatewayRateLimit } from './gatewayLimit.js';
@@ -16,7 +17,7 @@ import { endgameDivergenceGate, endgameV2Rule, resolveScoreAgeMs, soccerFavorite
 import { classifyLivePhase, sportFromEvent } from './livePhase.js';
 import { loadLiveModelSources } from './liveSources.js';
 import { teamsMatch } from './models/math.js';
-import { US_RULES } from './rules.js';
+import { US_RULES, US_SPEC_VERSION } from './rules.js';
 import { readJsonl as readSignals, usPaths, writeStatus } from './signals.js';
 
 const LIVE_PAGE_LIMIT = 100;
@@ -342,7 +343,7 @@ export function buildLiveObservationRows({
           espn_prob: espnProb,
           score_sampled_at: scoreSampledAt,
           score_age_ms: scoreAge,
-          spec_version: '3.5'
+          spec_version: US_SPEC_VERSION
         });
       }
     }
@@ -592,6 +593,7 @@ export async function runLiveObservations({
       quoted: modeled.filter((slug) => !reused[slug]).length,
       events: live.length,
       signals,
+      v2Skip: formatV2SkipHistogram(signals.skipped || []),
       errors,
       path: paths.liveObservations
     };

@@ -8,6 +8,9 @@ import { fileURLToPath } from 'node:url';
 import {
   US_BTC_MISPRICE_MIN_MODEL,
   US_CASH_RESERVE_USD,
+  US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+  US_LIVE_ENDGAME_V2_MAX_PRICE,
+  US_LIVE_ENDGAME_V2_MIN_MODEL,
   US_DAILY_CAPS,
   US_LIVE_ANALYZE_CAPS,
   US_LIVE_ANALYZE_THRESHOLDS,
@@ -45,9 +48,12 @@ import { US_RULES } from '../src/polymarketUs/rules.js';
 const NOW = new Date('2026-10-19T20:10:00.000Z');
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('BTC caps, cash reserve, and endgame floors stay put in v3.5', () => {
+test('BTC caps, cash reserve, and endgame floors stay put in v3.6', () => {
   assert.equal(US_BTC_MISPRICE_MIN_MODEL, 0.56);
   assert.equal(US_CASH_RESERVE_USD, 15);
+  assert.equal(US_LIVE_ENDGAME_V2_MIN_MODEL, 0.70);
+  assert.equal(US_LIVE_ENDGAME_V2_MAX_PRICE, 0.90);
+  assert.equal(US_LIVE_ENDGAME_V2_CASH_RESERVE_USD, 14);
   assert.equal(US_DAILY_CAPS.btc_misprice, 8);
   assert.equal(US_DAILY_CAPS.live, 10);
   assert.equal(US_SIZE_DEFAULT_USD, 2);
@@ -58,6 +64,7 @@ test('BTC caps, cash reserve, and endgame floors stay put in v3.5', () => {
   assert.equal(US_RULES.edge.liveEndgameMinModel, 0.88);
   assert.equal(US_RULES.edge.liveEndgameMaxPrice, 0.95);
   assert.equal(US_RULES.size.cashReserveUsd, 15);
+  assert.equal(US_RULES.size.liveEndgameV2CashReserveUsd, 14);
   assert.equal(US_LIVE_OBSERVE_MIN_MODEL, 0.60);
   assert.equal(US_RULES.edge.liveObserveMinModel, 0.60);
   assert.equal(US_SOCCER_PAPER_MIN_MODEL, 0.80);

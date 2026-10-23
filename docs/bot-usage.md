@@ -14,7 +14,7 @@
 
 ## 扫描器与 bot 的分工
 
-规则版本是 SCAN_SPEC v3.5。v3 的「等用户逐笔确认」和「每天最多 2–3 笔」已作废。v3.3 只收紧 BTC 错价，现金保留仍是 $15。v3.4 加上 Live 观察日志和尾盘分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`，不改 BTC 和现金保留。依据和回滚见 `docs/us-btc-misprice-20261018.md` 与 `docs/us-live-observations.md`。
+规则版本是 SCAN_SPEC v3.6。v3 的「等用户逐笔确认」和「每天最多 2–3 笔」已作废。v3.3 只收紧 BTC 错价，全局现金保留仍是 $15。v3.4 加上 Live 观察日志和尾盘分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`。v3.6 只把这个试单的现金地板放到 $14，并最多允许 1 笔打穿 $15。依据和回滚见 `docs/us-btc-misprice-20261018.md` 与 `docs/us-live-observations.md`。
 
 - 云端脚本只监控：客观数据 → 模型概率 → 和美国站卖价的 edge。通过才写 SIGNAL。
 - 用户已给站立授权：bot 看到 `status=pending` 就在 polymarket.us 下限价单，不用再问。金额约 $2–5。
@@ -93,14 +93,14 @@ Edge 是模型概率减去美国站卖价。非 BTC 门槛相对旧的 0.10 仍�
 - BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。`model − ask > 0.10` 时，ESPN 和 Pinnacle 都要 ≥ 0.88，并且比分/时钟在 60 秒内，否则跳过。两个来源都没有时只下 $1。详见 `docs/us-live-observations.md`。
-- Live 尾盘试单 `live_endgame_v2`：endgame、模型 ≥ 0.70、价格 ≤ 0.90，每笔 $1，日帽 6，每个市场每天一笔。分歧超过 0.10 时两边模型都要 ≥ 0.70 且比分新鲜，否则跳过。和旧尾盘不能买同一边。现金保留 $15，板块刹车同样适用。`US_LIVE_ENDGAME_V2_ENABLED=false` 关掉。
+- Live 尾盘试单 `live_endgame_v2`：endgame、模型 ≥ 0.70、价格 ≤ 0.90，每笔 $1，日帽 6，每个市场每天一笔。分歧超过 0.10 时两边模型都要 ≥ 0.70 且比分新鲜，否则跳过。和旧尾盘不能买同一边。购买力小于 $1 是 `insufficient_cash`。下单后 ≥ $14 即可，但把现金留在 $14 到 $15 之间最多 1 笔，之后重新要求 $15。其他板块仍是下单后 ≥ $15。`US_LIVE_ENDGAME_V2_ENABLED=false` 关掉。可选试点 `US_LIVE_ENDGAME_V2_MIN_MODEL=0.65`（价格帽仍是 0.90），默认不改。`us:live-observe` 摘要带 `v2-skip` 原因直方图。标 `skipped` 时 pending 行写 `skip_reason`。
 - Live 观察：`us:scan` 会把每个正在进行的胜负盘（Yes 和 No）追加到 `polymarket-ledger/scans/live-observations.jsonl`，没有模型也写，低于 0.60 也写。阈值研究带是 `model_prob ≥ 0.60`（`rule_pass.observe_band`）。试单是否通过写在 `rule_pass.endgame_v2`。通过就写 SIGNAL，由 `polymarket:us` 在 15 分钟循环里下单。`us:live-observe` 每 5 分钟做同样的记录和发信号，并立刻只下这个试单板块。足球早/中/晚盘去水热门只在 `rule_pass.would_signal_paper` 标 true，不下单。观察排在交易行情之后，只给有模型的市场补 BBO，大约每秒一个；429 只跳过这一笔，不让整轮扫描退出。`us:settle` 把赛果写到 `scans/live-observations-settled.jsonl`。`us:live-analyze` 的默认门槛从 0.60 到 0.95。
 - 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。数值置信度低于 0.50（含模型没形成时的 0）才记为 Low；0.50–0.62 记为 Med，0.62 及以上记为 High。显式写成 Low 的模型行仍然跳过。Med 不再从 0.56 起算，避免 15 分钟错价已经有 5 个百分点 edge 却被 `15m:confidence` 静默丢掉。
 - 同一 15 分钟窗口不能一边 Up 一边 Down（只挡反方向，同向已有仓不整窗跳过）。错价和动量同时合格时只留错价。
 - 国际站独有盘不入选：ETH、美债收益率、纽约/洛杉矶/芝加哥/迈阿密/旧金山以外的城市气温。
 - `picks.jsonl` 里已有同一市场、同一方向，不再入选。
 
-仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge（门槛 ×1.5，SCAN_SPEC v3.2 `weakEdgeMultiplier`，不是 +0.02）。现金扣掉本笔后必须仍 ≥ $15。现金门只认 `buyingPower`；`account.json` 里没有 `buyingPower` 时，扫描不拿 `cash_usd` 或 `currentBalance` 顶上，由 bot 下单前再核购买力。
+仓位看该板块真实已结算胜率：默认 $2；胜率 ≥ 70% 且样本 ≥ 5 → $3；≥ 80% 且样本 ≥ 10 → $5。胜率 < 45% 或连亏 3 笔则维持 $2，并要求更干净的 edge（门槛 ×1.5，SCAN_SPEC v3.2 `weakEdgeMultiplier`，不是 +0.02）。除 `live_endgame_v2` 外，现金扣掉本笔后必须仍 ≥ $15。试单可以有一笔把现金留在 $14 以上、$15 以下。现金门只认 `buyingPower`；`account.json` 里没有 `buyingPower` 时，扫描不拿 `cash_usd` 或 `currentBalance` 顶上，由 bot 下单前再核购买力。购买力不够这一笔是 `insufficient_cash`，下单后低于保留额是 `cash_reserve`。
 
 日帽按太平洋时间自然日，计该板块真实成交加未过期 pending：Live 10、动量 15、BTC 错价 8、赛前 6、天气 4、宏观 3、加密 4、master 4。
 

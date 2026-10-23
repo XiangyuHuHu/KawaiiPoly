@@ -4,6 +4,7 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { countV2CashFloorBreaches } from './cashReserve.js';
 import { liveEndgameV2Enabled } from './constants.js';
 import { syncSectorBrakes } from './calibration.js';
 import { evaluateUsSignal } from './evaluate.js';
@@ -47,6 +48,7 @@ export async function publishLiveEndgameV2({
   const orders = await readJsonl(paths.realOrders);
   const date = ptDateKey(now);
   let buyingPower = null;
+  let breachFills = countV2CashFloorBreaches(orders, pending);
   try {
     const account = JSON.parse(await readFile(paths.account, 'utf8'));
     const value = Number(account?.buyingPower ?? account?.buying_power);
@@ -129,6 +131,7 @@ export async function publishLiveEndgameV2({
       windowId: slug,
       expiresAt: new Date(now.getTime() + 45 * 60 * 1000).toISOString(),
       buyingPower,
+      v2CashBreachFills: breachFills,
       dailyFilled: filled,
       dailyPending: pendingCount,
       basis: `Live 尾盘试单 v2：${row.sport || 'sports'} 模型 ${row.model_prob}，卖价 ${ask}。`,
@@ -146,6 +149,7 @@ export async function publishLiveEndgameV2({
     signals.push({ id: decision.signal.id, slug, side: row.side });
     takenMarkets.add(slug);
     pendingCount += 1;
+    if (decision.signal.v2_cash_floor_breach === true) breachFills += 1;
     if (buyingPower != null) buyingPower -= decision.signal.size_usd;
   }
   return { published: signals.length, ids: signals.map((row) => row.id), signals, skipped };

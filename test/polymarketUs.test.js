@@ -78,7 +78,7 @@ test('US and international endpoints stay separate', () => {
     assert.equal(config.polymarketUs.perTradeConfirm, false);
     assert.equal(config.polymarketUs.dryRun, true);
     assert.equal(config.polymarketUs.liveTradingEnabled, false);
-    assert.match(String(config.polymarketUs.specVersion), /3\.5/);
+    assert.match(String(config.polymarketUs.specVersion), /3\.6/);
     assert.throws(
       () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
       /refuses international/
@@ -151,7 +151,7 @@ test('gateway reads markets, bbo, and book without Gamma', async () => {
   assert.equal(calls.some((url) => url.includes('gamma-api') || url.includes('clob.polymarket.com')), false);
 });
 
-test('v3.5 standing auto-order, edge, size, and sector caps', () => {
+test('v3.6 standing auto-order, edge, size, and sector caps', () => {
   const signal = evaluateUsSignal(passing());
   assert.equal(signal.ok, true);
   assert.equal(signal.signal.side, 'Up');
@@ -161,7 +161,7 @@ test('v3.5 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
   assert.equal(signal.signal.p_used, 0.6303);
-  assert.equal(signal.signal.spec_version, '3.5');
+  assert.equal(signal.signal.spec_version, '3.6');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
   assert.equal(signal.signal.auto_order.per_trade_confirm, false);
@@ -260,7 +260,7 @@ test('v3.5 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(evaluateUsSignal(passing({ dailyFilled: 7 })).ok, true);
   assert.equal(evaluateUsSignal(passing({ dailyFilled: 8 })).reason, 'daily-cap');
   assert.equal(evaluateUsSignal(passing({ dailyOrders: 3, dailyFilled: 0 })).ok, true);
-  assert.equal(evaluateUsSignal(passing({ buyingPower: 16 })).reason, 'cash-reserve');
+  assert.equal(evaluateUsSignal(passing({ buyingPower: 16 })).reason, 'cash_reserve');
   assert.equal(evaluateUsSignal(passing({ buyingPower: null, cashUsd: 16 })).ok, true);
 
   const weather = evaluateUsSignal(passing({
@@ -389,7 +389,9 @@ test('v3.5 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.5');
+  assert.equal(US_RULES.specVersion, '3.6');
+  assert.equal(US_RULES.size.liveEndgameV2CashReserveUsd, 14);
+  assert.equal(US_RULES.size.liveEndgameV2CashBreachMax, 1);
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);
   assert.equal(US_EDGE_BTC_MISPRICE, 0.04);
   assert.equal(US_RULES.edge.btcMisprice, US_EDGE_BTC_MISPRICE);

@@ -1,11 +1,15 @@
 /**
- * SCAN_SPEC v3.5（2026-10-20）里必须执行的数字。
- * v3.3 的 BTC 错价、现金保留、胜率仓位不变。v3.4 是 Live 观察和尾盘分歧闸门。
+ * SCAN_SPEC v3.6（2026-10-23）里必须执行的数字。
+ * v3.3 的 BTC 错价、全局现金保留 $15、胜率仓位不变。v3.4 是 Live 观察和尾盘分歧闸门。
  * v3.5 加 Live 尾盘试单 live_endgame_v2：模型 ≥ 0.70、价格 ≤ 0.90、每笔 $1。
+ * v3.6 只放宽这个试单的现金地板。购买力约 $15.86 时，$1 之后剩约 $14.86，过不了全局 $15。
+ * 试单改为下单后 ≥ $14，并且最多 1 笔可以把现金打到 $15 以下，然后重新要求 $15。
+ * 其他板块仍用 US_CASH_RESERVE_USD。试单阈值不改：实盘成交只有 1 笔，0.70/0.90 先不动。
+ * 可选试点：US_LIVE_ENDGAME_V2_MIN_MODEL=0.65（价格帽仍是 0.90）。默认仍是 0.70。
  * 扫描器可以改文案；下单以这里的常量为准。
  */
 
-export const US_SPEC_VERSION = 'v3.5';
+export const US_SPEC_VERSION = 'v3.6';
 export const US_LINE_ID = 'polymarket_us';
 
 export const US_GATEWAY_BASE = 'https://gateway.polymarket.us';
@@ -110,11 +114,30 @@ export const US_LIVE_ENDGAME_V2_MAX_PRICE = 0.90;
 export const US_LIVE_ENDGAME_V2_SIZE_USD = 1;
 export const US_LIVE_ENDGAME_V2_DAILY_CAP = 6;
 export const US_LIVE_ENDGAME_V2_ENABLED = true;
+/**
+ * 试单现金地板。全局 US_CASH_RESERVE_USD 仍是 15，其他板块不读这个数。
+ * 购买力 ≥ 下单金额，且下单后 ≥ 14，才允许。下单后仍 ≥ 15 的试单不占豁免。
+ * 下单后落在 [14, 15) 最多 US_LIVE_ENDGAME_V2_CASH_BREACH_MAX 笔，用完重新要求 15。
+ */
+export const US_LIVE_ENDGAME_V2_CASH_RESERVE_USD = 14;
+export const US_LIVE_ENDGAME_V2_CASH_BREACH_MAX = 1;
 
 export function liveEndgameV2Enabled(env = process.env) {
   const raw = env?.US_LIVE_ENDGAME_V2_ENABLED;
   if (raw == null || String(raw).trim() === '') return US_LIVE_ENDGAME_V2_ENABLED;
   return !['0', 'false', 'off', 'no'].includes(String(raw).trim().toLowerCase());
+}
+
+/**
+ * 试单模型地板。默认 0.70。设 US_LIVE_ENDGAME_V2_MIN_MODEL=0.65 才是 0.65/0.90 试点。
+ * 非法值退回默认，不把地板抬向 0.88。价格帽不读环境变量。
+ */
+export function liveEndgameV2MinModel(env = process.env, fallback = US_LIVE_ENDGAME_V2_MIN_MODEL) {
+  const raw = env?.US_LIVE_ENDGAME_V2_MIN_MODEL;
+  if (raw == null || String(raw).trim() === '') return fallback;
+  const number = Number(raw);
+  if (!Number.isFinite(number) || number <= 0 || number >= 1) return fallback;
+  return number;
 }
 /** 足球早/中/晚盘（75' 之前）Pinnacle 去水热门。只写观察日志，不下单。 */
 export const US_SOCCER_PAPER_MIN_MODEL = 0.80;

@@ -13,10 +13,12 @@ import {
   US_EDGE_STANDARD,
   US_LIVE_ENDGAME_MAX_PRICE,
   US_LIVE_ENDGAME_MIN_MODEL,
+  US_CASH_RESERVE_USD,
+  US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
   US_LIVE_ENDGAME_V2_MAX_PRICE,
-  US_LIVE_ENDGAME_V2_MIN_MODEL,
   US_LIVE_ENDGAME_V2_SIZE_USD,
   liveEndgameV2Enabled,
+  liveEndgameV2MinModel,
   US_LOSS_STREAK,
   US_MAX_SPREAD,
   US_MODEL_PROB_CAP,
@@ -36,6 +38,7 @@ import {
   US_WINRATE_SAMPLES_70,
   US_WINRATE_SAMPLES_80
 } from './constants.js';
+import { cashReserveSkipMessage, evaluateUsCashReserve } from './cashReserve.js';
 import {
   eventUrlForSignal,
   isInternationalEventUrl,
@@ -293,7 +296,7 @@ function oppositeOpen(signal, side, openWindows) {
 }
 
 /**
- * 对一条 SIGNAL 做 v3.5 门控。不访问网络。
+ * 对一条 SIGNAL 做 v3.6 门控。不访问网络。
  * action: place | skip | defer
  */
 export function evaluateUsSignal(signal, context = {}) {
@@ -396,14 +399,15 @@ export function evaluateUsSignal(signal, context = {}) {
   let minEdge = null;
   let minPrice = US_PRICE_MIN;
   let maxPrice = US_PRICE_MAX;
+  const v2MinModel = liveEndgameV2MinModel();
   if (trial) {
     if (!liveEndgameV2Enabled()) {
       return decision('skip', 'live_endgame_v2_disabled', '尾盘试单已关掉。', { ...base, status: 'skipped' });
     }
     minPrice = 0;
     maxPrice = US_LIVE_ENDGAME_V2_MAX_PRICE;
-    if (model == null || model + 1e-9 < US_LIVE_ENDGAME_V2_MIN_MODEL) {
-      return decision('skip', 'endgame_v2_model', `尾盘试单模型 ${model} 低于 ${US_LIVE_ENDGAME_V2_MIN_MODEL}。`, { ...base, status: 'skipped' });
+    if (model == null || model + 1e-9 < v2MinModel) {
+      return decision('skip', 'endgame_v2_model', `尾盘试单模型 ${model} 低于 ${v2MinModel}。`, { ...base, status: 'skipped' });
     }
     const conflict = conflictingEndgameTake(signal, context.marketTakes);
     if (conflict) {
@@ -449,7 +453,7 @@ export function evaluateUsSignal(signal, context = {}) {
       scoreSampledAt: signal?.score_sampled_at ?? signal?.scoreSampledAt,
       now,
       rules: context.rules,
-      agreeMin: trial ? US_LIVE_ENDGAME_V2_MIN_MODEL : null,
+      agreeMin: trial ? v2MinModel : null,
       allowMicro: !trial
     });
     if (divergence.action === 'skip') {
@@ -556,20 +560,31 @@ export function evaluateUsSignal(signal, context = {}) {
     return decision('skip', 'daily_cap', `${sector} 今日已下 ${used} 笔，日帽 ${cap}。`, { ...base, status: 'skipped' });
   }
   const buyingPower = context.buyingPower;
-  const reserve = context.cashReserveUsd ?? 15;
-  if (buyingPower != null) {
-    if (buyingPower + 1e-9 < sizeUsd) {
-      return decision('skip', 'insufficient_cash', `可用资金 ${buyingPower} 不够 $${sizeUsd}。`, { ...base, status: 'skipped' });
-    }
-    if (buyingPower - sizeUsd + 1e-9 < reserve) {
-      return decision('skip', 'cash_reserve', `下单后现金将低于 $${reserve} 保留额。`, { ...base, status: 'skipped' });
-    }
+  const cash = evaluateUsCashReserve({
+    buyingPower,
+    sizeUsd,
+    trial,
+    globalReserve: context.cashReserveUsd ?? US_CASH_RESERVE_USD,
+    v2Reserve: context.v2CashReserveUsd ?? US_LIVE_ENDGAME_V2_CASH_RESERVE_USD,
+    breachFills: context.v2CashBreachFills ?? 0
+  });
+  const cashNote = { cash_reserve_checked: cash.checked };
+  if (!cash.ok) {
+    return decision('skip', cash.code, cashReserveSkipMessage({ cash, buyingPower, sizeUsd }), {
+      ...base,
+      status: 'skipped',
+      ...cashNote,
+      cash_reserve_usd: cash.reserve,
+      sizeUsd,
+      v2_cash_floor_breach: false
+    });
   }
   if (context.dryRun && (context.dryIds || []).includes(id)) {
     return decision('skip', 'already_dry_run', '这条 SIGNAL 今天已经 dry-run 过，仍保持 pending。', {
       ...base,
       status: 'pending',
-      updateStatus: false
+      updateStatus: false,
+      ...cashNote
     });
   }
 
@@ -579,6 +594,7 @@ export function evaluateUsSignal(signal, context = {}) {
       ...base,
       status: 'pending',
       updateStatus: false,
+      ...cashNote,
       modelP,
       marketP: roundedMarket,
       pUsed
@@ -592,10 +608,13 @@ export function evaluateUsSignal(signal, context = {}) {
     sizeUsd
   });
   const placeCode = orderKind === 'exploratory' || orderKind === 'divergence_micro' ? orderKind : 'pass';
-  return decision('place', placeCode, exploratoryReason || '通过 v3.5 门控。', {
+  return decision('place', placeCode, exploratoryReason || '通过 v3.6 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,
+    ...cashNote,
+    cash_reserve_usd: cash.checked ? cash.reserve : null,
+    v2_cash_floor_breach: cash.floorBreach === true,
     order_kind: orderKind,
     sizeUsd,
     tier: sizing.tier,
