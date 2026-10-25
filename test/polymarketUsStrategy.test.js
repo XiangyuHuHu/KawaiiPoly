@@ -65,8 +65,8 @@ function place(overrides = {}, context = {}) {
   });
 }
 
-test('SCAN_SPEC v3.6 caps, edges, and momentum scale are constants', () => {
-  assert.equal(US_SPEC_VERSION, 'v3.6');
+test('SCAN_SPEC v3.7 caps, edges, and momentum scale are constants', () => {
+  assert.equal(US_SPEC_VERSION, 'v3.7');
   assert.equal(US_LIVE_ENDGAME_V2_MIN_MODEL, 0.70);
   assert.equal(US_LIVE_ENDGAME_V2_MAX_PRICE, 0.90);
   assert.equal(US_LIVE_ENDGAME_V2_CASH_RESERVE_USD, 14);
@@ -661,6 +661,34 @@ test('live endgame v2 is a one-dollar trial and does not double-buy', () => {
     slug: 'aec-nfl-stale'
   });
   assert.equal(stale.code, 'stale_bbo');
+  assert.equal(stale.action, 'defer');
+  assert.equal(stale.status, 'pending');
+  assert.equal(stale.updateStatus, true);
+  const wide = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    spread_cents: 8,
+    liquidity_usd: 20,
+    slug: 'aec-nfl-wide'
+  });
+  assert.equal(wide.code, 'spread');
+  assert.equal(wide.action, 'defer');
+  assert.equal(wide.status, 'pending');
+  const noSpread = place({
+    sector: 'live_endgame_v2',
+    model_prob: 0.8,
+    limit_price: 0.8,
+    ask: 0.8,
+    spread: undefined,
+    spread_cents: undefined,
+    liquidity_usd: 20,
+    slug: 'aec-nfl-nospread'
+  });
+  assert.equal(noSpread.code, 'spread_unknown');
+  assert.equal(noSpread.action, 'defer');
+  assert.equal(noSpread.status, 'pending');
   const thin = place({
     sector: 'live_endgame_v2',
     model_prob: 0.8,
@@ -730,6 +758,9 @@ test('live endgame v2 is a one-dollar trial and does not double-buy', () => {
       slug: 'aec-nfl-off'
     });
     assert.equal(off.code, 'live_endgame_v2_disabled');
+    assert.equal(off.action, 'skip');
+    assert.equal(off.status, 'skipped');
+    assert.equal(off.updateStatus, true);
   } finally {
     if (previous === undefined) delete process.env.US_LIVE_ENDGAME_V2_ENABLED;
     else process.env.US_LIVE_ENDGAME_V2_ENABLED = previous;

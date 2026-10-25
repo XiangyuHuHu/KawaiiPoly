@@ -78,7 +78,7 @@ test('US and international endpoints stay separate', () => {
     assert.equal(config.polymarketUs.perTradeConfirm, false);
     assert.equal(config.polymarketUs.dryRun, true);
     assert.equal(config.polymarketUs.liveTradingEnabled, false);
-    assert.match(String(config.polymarketUs.specVersion), /3\.6/);
+    assert.match(String(config.polymarketUs.specVersion), /3\.7/);
     assert.throws(
       () => new PolymarketUsGateway({ baseUrl: 'https://gamma-api.polymarket.com' }),
       /refuses international/
@@ -161,7 +161,7 @@ test('v3.6 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(signal.signal.model_p, 0.7);
   assert.equal(signal.signal.market_p, 0.545);
   assert.equal(signal.signal.p_used, 0.6303);
-  assert.equal(signal.signal.spec_version, '3.6');
+  assert.equal(signal.signal.spec_version, '3.7');
   assert.equal(signal.signal.auto_order.scanner_places_orders, false);
   assert.equal(signal.signal.auto_order.authorized, true);
   assert.equal(signal.signal.auto_order.per_trade_confirm, false);
@@ -389,7 +389,7 @@ test('v3.6 standing auto-order, edge, size, and sector caps', () => {
   assert.equal(sizeForRecord({ wins: 7, losses: 3 }).usd, 3);
   assert.equal(sizeForRecord({ wins: 2, losses: 3 }).usd, 2);
   assert.equal(sizeForRecord({ wins: 8, losses: 2, lossStreak: 3 }).tier, 'weak');
-  assert.equal(US_RULES.specVersion, '3.6');
+  assert.equal(US_RULES.specVersion, '3.7');
   assert.equal(US_RULES.size.liveEndgameV2CashReserveUsd, 14);
   assert.equal(US_RULES.size.liveEndgameV2CashBreachMax, 1);
   assert.equal(US_RULES.edge.nonBtcNonLive, 0.03);

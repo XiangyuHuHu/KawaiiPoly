@@ -267,6 +267,10 @@ function statusPatch(result, now = new Date()) {
     updated_at: now.toISOString()
   };
   if (result.status === 'skipped') patch.skip_reason = result.code || result.reason || 'skipped';
+  if (result.action === 'defer' && result.code) {
+    patch.defer_reason = result.code;
+    patch.skip_reason = null;
+  }
   if (typeof result.cash_reserve_checked === 'boolean') {
     patch.cash_reserve_checked = result.cash_reserve_checked;
   }

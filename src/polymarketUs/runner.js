@@ -8,6 +8,7 @@ import { loadUsSignals, persistSignalStatuses } from './signals.js';
 import { normalizeOutcomeSide, normalizeSector, readNumber, readPresentNumber, windowKey } from './shape.js';
 import {
   countSectorFills,
+  deferRetryableQuote,
   evaluateUsSignal,
   formatPacificTimestamp,
   pacificParts,
@@ -81,7 +82,7 @@ export function tradeObservationTime(source, decidedAt) {
 async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
   const local = quoteFromSignal(signal);
   if (fetchQuotes === false || !gateway || !signal?.slug) {
-    return { quote: local, bboAsOf: now };
+    return { quote: local, bboAsOf: now, refreshed: false };
   }
   let bbo = null;
   let quoteError = null;
@@ -90,20 +91,22 @@ async function resolveQuote(signal, { gateway, now, fetchQuotes }) {
   } catch (error) {
     quoteError = error.message;
   }
+  const decidedAt = new Date();
+  if (!bbo) {
+    return {
+      quote: null,
+      refreshFailed: true,
+      quoteError,
+      bboAsOf: decidedAt
+    };
+  }
   let book = null;
-  if (bbo && typeof gateway.getBook === 'function') {
+  if (typeof gateway.getBook === 'function') {
     try {
       book = await gateway.getBook(signal.slug);
     } catch {
       book = null;
     }
-  }
-  const decidedAt = new Date();
-  if (!bbo) {
-    return {
-      quote: local ? { ...local, quoteError } : { quoteError },
-      bboAsOf: decidedAt
-    };
   }
   const depthUsd = sideDepthUsd(bbo, book, signal.side);
   const cacheAgeMs = readPresentNumber(bbo.cacheAgeMs) ?? 0;
@@ -201,6 +204,18 @@ export async function runPolymarketUsCycle(options = {}) {
       now,
       fetchQuotes: options.fetchQuotes
     });
+    if (resolved.refreshFailed) {
+      const decision = deferRetryableQuote(
+        signal,
+        'quote_unavailable',
+        resolved.quoteError
+          ? `刷新 BBO 失败（${resolved.quoteError}），SIGNAL 保持 pending。`
+          : '刷新 BBO 失败，SIGNAL 保持 pending。'
+      );
+      decision.signal = signal;
+      results.push(decision);
+      continue;
+    }
     const quote = resolved.quote;
     const decision = evaluateUsSignal(signal, {
       now,
@@ -296,7 +311,7 @@ export async function runPolymarketUsCycle(options = {}) {
         decision.code = permanent ? 'order_rejected' : 'api_error';
         decision.reason = error.message;
         decision.status = permanent ? 'skipped' : 'pending';
-        decision.updateStatus = permanent;
+        decision.updateStatus = true;
         decision.fill_status = 'rejected';
       }
     }

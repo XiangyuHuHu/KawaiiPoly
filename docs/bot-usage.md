@@ -14,7 +14,7 @@
 
 ## 扫描器与 bot 的分工
 
-规则版本是 SCAN_SPEC v3.6。v3 的「等用户逐笔确认」和「每天最多 2–3 笔」已作废。v3.3 只收紧 BTC 错价，全局现金保留仍是 $15。v3.4 加上 Live 观察日志和尾盘分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`。v3.6 只把这个试单的现金地板放到 $14，并最多允许 1 笔打穿 $15。依据和回滚见 `docs/us-btc-misprice-20261018.md` 与 `docs/us-live-observations.md`。
+规则版本是 SCAN_SPEC v3.7。v3 的「等用户逐笔确认」和「每天最多 2–3 笔」已作废。v3.3 只收紧 BTC 错价，全局现金保留仍是 $15。v3.4 加上 Live 观察日志和尾盘分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`。v3.6 只把这个试单的现金地板放到 $14，并最多允许 1 笔打穿 $15。v3.7 让 `us:live-observe` 读到同一套实盘开关，并把可重试的行情失败留在 pending。依据和回滚见 `docs/us-btc-misprice-20261018.md` 与 `docs/us-live-observations.md`。
 
 - 云端脚本只监控：客观数据 → 模型概率 → 和美国站卖价的 edge。通过才写 SIGNAL。
 - 用户已给站立授权：bot 看到 `status=pending` 就在 polymarket.us 下限价单，不用再问。金额约 $2–5。
@@ -88,12 +88,12 @@ bot 下单后把对应行改成 `filled` 或 `skipped`，记入 `real-orders.jso
 Edge 是模型概率减去美国站卖价。非 BTC 门槛相对旧的 0.10 仍是放宽后的数字；BTC 错价在 v3.3 收紧：
 
 - 非 BTC、非 Live（赛前、天气、宏观、加密长线、master）：≥ 3 个百分点。价格仍要在 0.15–0.85。
-- BTC 15 分钟 / 1 小时错价：买入方向的模型概率至少 0.56。再向该方向盘口中间价收缩，`p_used = 0.55 * model + 0.45 * market`。`p_used` 比卖价至少高 4 个百分点，且不超过 15 个百分点，才下正常仓 $2。买入价只允许 0.35–0.65。不打 $1 试探单。BBO 年龄按决定下单这一刻收到的 BBO 计算（缓存 `Age`；没有 `Age` 时用刚收到的时刻）。30 秒内直接算新鲜。超过 30 秒、不超过 3 分钟时，卖价和中间价相对信号的波动都不超过 2¢ 仍算新鲜，小幅波动不算过期。超过 3 分钟，或波动大于 2¢，才跳过 `stale_bbo`。卖价高于限价仍是追价。扫描和下单用同一条 `classifyBtcMisprice`。扫描能读到缓存 `Age` 时不用上一笔成交时间。结算规则必须是 BRTI 收盘涨跌，不是 Touch。1 小时错价没有单独关掉：已结算的 5 笔 1 小时全亏，但模型都低于 0.56，会被同一条模型下限挡住。
+- BTC 15 分钟 / 1 小时错价：买入方向的模型概率至少 0.56。再向该方向盘口中间价收缩，`p_used = 0.55 * model + 0.45 * market`。`p_used` 比卖价至少高 4 个百分点，且不超过 15 个百分点，才下正常仓 $2。买入价只允许 0.35–0.65。不打 $1 试探单。BBO 年龄按决定下单这一刻收到的 BBO 计算（缓存 `Age`；没有 `Age` 时用刚收到的时刻）。30 秒内直接算新鲜。超过 30 秒、不超过 3 分钟时，卖价和中间价相对信号的波动都不超过 2¢ 仍算新鲜，小幅波动不算过期。超过 3 分钟，或波动大于 2¢，这一轮不下，原因仍是 `stale_bbo`，但 SIGNAL 保持 pending，下一轮再拉 BBO。卖价高于限价仍是追价，并且会把 SIGNAL 标成 skipped。扫描和下单用同一条 `classifyBtcMisprice`。扫描能读到缓存 `Age` 时不用上一笔成交时间。结算规则必须是 BRTI 收盘涨跌，不是 Touch。1 小时错价没有单独关掉：已结算的 5 笔 1 小时全亏，但模型都低于 0.56，会被同一条模型下限挡住。
 - 试探单 $1：只留给 Live 盘中和动量。Live 盘中的 edge 在 2pp 以上、不到 4pp 时下 $1。4pp 起仍是 $2–$5。低于 2pp 跳过。冷板块正式门槛仍是 6pp，4pp–6pp 不是试探带。动量距离在 2 bps 以上、不到 4 bps 时同样下 $1；4 bps 起仍是正常仓。BTC 错价不在试探范围内。同一窗口只留一边：正式信号优先于试探；错价被跳过时，合格的动量可以留下。`order_kind` 写成 `exploratory` 或 `normal`。过期 BBO、深度 0、追价、板块刹车、下单后现金低于 $15、同窗对敲、价格出带，这些仍然不下试探单。
 - BTC 15 分钟动量：触发距离是国际站 Plan2 15 分钟动量 8 bps 的一半（4 bps）；`same_way` 必须同向；`mos`（模型概率减卖价）必须为正；买入价 ≤ 0.88。胜率偏弱时距离退回 8 bps。
 - Live 盘中：模型比卖价高 ≥ 4 个百分点，价格大约 0.15–0.95。
 - Live 尾盘：模型 ≥ 0.88 且价格 ≤ 0.95。模型概率不按 0.90 封顶。`model − ask > 0.10` 时，ESPN 和 Pinnacle 都要 ≥ 0.88，并且比分/时钟在 60 秒内，否则跳过。两个来源都没有时只下 $1。详见 `docs/us-live-observations.md`。
-- Live 尾盘试单 `live_endgame_v2`：endgame、模型 ≥ 0.70、价格 ≤ 0.90，每笔 $1，日帽 6，每个市场每天一笔。分歧超过 0.10 时两边模型都要 ≥ 0.70 且比分新鲜，否则跳过。和旧尾盘不能买同一边。购买力小于 $1 是 `insufficient_cash`。下单后 ≥ $14 即可，但把现金留在 $14 到 $15 之间最多 1 笔，之后重新要求 $15。其他板块仍是下单后 ≥ $15。`US_LIVE_ENDGAME_V2_ENABLED=false` 关掉。可选试点 `US_LIVE_ENDGAME_V2_MIN_MODEL=0.65`（价格帽仍是 0.90），默认不改。`us:live-observe` 摘要带 `v2-skip` 原因直方图。标 `skipped` 时 pending 行写 `skip_reason`。
+- Live 尾盘试单 `live_endgame_v2`：endgame、模型 ≥ 0.70、价格 ≤ 0.90，每笔 $1，日帽 6，每个市场每天一笔。分歧超过 0.10 时两边模型都要 ≥ 0.70 且比分新鲜，否则跳过。和旧尾盘不能买同一边。购买力小于 $1 是 `insufficient_cash`。下单后 ≥ $14 即可，但把现金留在 $14 到 $15 之间最多 1 笔，之后重新要求 $15。其他板块仍是下单后 ≥ $15。`US_LIVE_ENDGAME_V2_ENABLED=false` 关掉发布和下单。可选试点 `US_LIVE_ENDGAME_V2_MIN_MODEL=0.65`（价格帽仍是 0.90），默认不改。`us:live-observe` 摘要带 `v2-skip` 原因直方图，终态跳过和本轮 defer 都计数。标 `skipped` 时 pending 行写 `skip_reason`。`stale_bbo`、价差、行情刷新失败写 `defer_reason`，状态仍是 pending。
 - Live 观察：`us:scan` 会把每个正在进行的胜负盘（Yes 和 No）追加到 `polymarket-ledger/scans/live-observations.jsonl`，没有模型也写，低于 0.60 也写。阈值研究带是 `model_prob ≥ 0.60`（`rule_pass.observe_band`）。试单是否通过写在 `rule_pass.endgame_v2`。通过就写 SIGNAL，由 `polymarket:us` 在 15 分钟循环里下单。`us:live-observe` 每 5 分钟做同样的记录和发信号，并立刻只下这个试单板块。足球早/中/晚盘去水热门只在 `rule_pass.would_signal_paper` 标 true，不下单。观察排在交易行情之后，只给有模型的市场补 BBO，大约每秒一个；429 只跳过这一笔，不让整轮扫描退出。`us:settle` 把赛果写到 `scans/live-observations-settled.jsonl`。`us:live-analyze` 的默认门槛从 0.60 到 0.95。
 - 价差 ≤ 3¢，盘口深度要够这一笔。`resolution_risk=High` 或 `confidence=Low` 跳过。非尾盘的 `model_prob` 封顶 0.90。数值置信度低于 0.50（含模型没形成时的 0）才记为 Low；0.50–0.62 记为 Med，0.62 及以上记为 High。显式写成 Low 的模型行仍然跳过。Med 不再从 0.56 起算，避免 15 分钟错价已经有 5 个百分点 edge 却被 `15m:confidence` 静默丢掉。
 - 同一 15 分钟窗口不能一边 Up 一边 Down（只挡反方向，同向已有仓不整窗跳过）。错价和动量同时合格时只留错价。
@@ -119,7 +119,7 @@ npm run us:settle
 POLYMARKET_US_IGNORE_WINDOW=1 npm run us:scan
 ```
 
-`polymarket:us` 在决定下单前自己重新拉 BBO 和订单簿。BTC 错价的 30 秒按决定下单这一刻收到的 BBO 计算：年龄是响应头 `Age`，没有 `Age` 时用刚收到的时刻。`lastPriceSample` 和订单簿 `transactTime` 都是上一笔成交，15 分钟订单簿返回 200 时也会带上这个旧时间，不拿来判过期。订单簿 404 同样只看这次 BBO。深度读订单簿该方向的价量；订单簿没有时再用 BBO 的份额。价差、edge、现金保留、仓位和日帽不变。API 判 `stale_bbo` 之后不要再用浏览器补单。
+`polymarket:us` 和 `us:live-observe` 在决定下单前都重新拉 BBO 和订单簿。刷新失败就 defer，不用信号上的旧报价把这笔烧掉。BTC 错价的 30 秒按决定下单这一刻收到的 BBO 计算：年龄是响应头 `Age`，没有 `Age` 时用刚收到的时刻。`lastPriceSample` 和订单簿 `transactTime` 都是上一笔成交，15 分钟订单簿返回 200 时也会带上这个旧时间，不拿来判过期。订单簿 404 同样只看这次 BBO。深度读订单簿该方向的价量；订单簿没有时再用 BBO 的份额。价差、edge、现金保留、仓位和日帽不变。`stale_bbo` 和价差过大保持 pending。API 判 `stale_bbo` 之后不要再用浏览器补单。`us:live-observe` 会加载仓库根目录的 `.env`（不覆盖已经导出的变量）。盒子上的循环脚本应 source `scripts/polymarket-us-live.env.sh`，用 `BASH_SOURCE` 找根目录，不要用 `dirname "$0"`。
 
 国际纸面由 `POLYMARKET_INTL_PAPER_ENABLED` 控制，默认开。关掉后 `polymarket.enabled` 为 false，纸面 Plan 不再跑。美国站用 `POLYMARKET_US_ENABLED`，默认关；扫描脚本读的是网关公开行情，不依赖这个开关去下单。
 

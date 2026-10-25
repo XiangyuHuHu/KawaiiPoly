@@ -1,22 +1,21 @@
+import { loadUsRepoEnv } from '../src/polymarketUs/loadEnv.js';
 import { formatV2SkipHistogram } from '../src/polymarketUs/cashReserve.js';
 import {
   US_GATEWAY_OBSERVE_GAP_MS,
   US_GATEWAY_RATE_LIMIT_BACKOFF_MS,
-  US_GATEWAY_TRADE_GAP_MS,
-  liveEndgameV2Enabled
+  US_GATEWAY_TRADE_GAP_MS
 } from '../src/polymarketUs/constants.js';
 import { configureGatewayLimiter } from '../src/polymarketUs/gatewayLimit.js';
-import { readJsonl } from '../src/polymarketUs/ledger.js';
-import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
-import { runPolymarketUsCycle } from '../src/polymarketUs/runner.js';
-import { normalizeSector } from '../src/polymarketUs/shape.js';
+import { placePendingLiveEndgameV2 } from '../src/polymarketUs/liveObservePlace.js';
 import { defaultLoadWindow, refreshUsQuote, runUsScan } from '../src/polymarketUs/scan.js';
 import { runLiveObservations, settleLiveObservations } from '../src/polymarketUs/liveObserve.js';
 import { PublicMarketDataClient } from '../packages/kawaii-signal/publicMarketData.js';
 import { runUsDigest } from '../src/polymarketUs/digest.js';
 import { PolymarketUsGateway } from '../src/polymarketUs/gateway.js';
 import { formatModelCounts, loadPublicModelReport } from '../src/polymarketUs/models.js';
-import { defaultLedgerRoot, defaultWorkspaceRoot, usPaths, writeStatus } from '../src/polymarketUs/signals.js';
+import { defaultLedgerRoot, defaultWorkspaceRoot, writeStatus } from '../src/polymarketUs/signals.js';
+
+loadUsRepoEnv();
 
 configureGatewayLimiter({
   tradeGapMs: US_GATEWAY_TRADE_GAP_MS,
@@ -53,26 +52,12 @@ if (command === 'settle') {
   let placed = 0;
   let placeError = '';
   const skipReasons = [...(result.signals?.skipped || [])];
-  if (liveEndgameV2Enabled()) {
-    const pending = await readJsonl(usPaths(ledgerRoot, workspaceRoot).pending);
-    const waiting = pending.filter((row) => (
-      normalizeSector(row.sector) === 'live_endgame_v2'
-      && !['filled', 'skipped', 'expired'].includes(String(row.status || 'pending'))
-    ));
-    if (waiting.length) {
-      try {
-        const report = await runPolymarketUsCycle({
-          sector: 'live_endgame_v2',
-          config: { ...buildPolymarketUsConfig(), ledgerDir: ledgerRoot, workspaceDir: workspaceRoot }
-        });
-        placed = report.placed || 0;
-        for (const row of report.results || []) {
-          if (row.action === 'skip' && row.code) skipReasons.push(row.code);
-        }
-      } catch (error) {
-        placeError = String(error?.message || error).slice(0, 160);
-      }
-    }
+  try {
+    const place = await placePendingLiveEndgameV2({ ledgerRoot, workspaceRoot });
+    placed = place.placed || 0;
+    skipReasons.push(...(place.skipReasons || []));
+  } catch (error) {
+    placeError = String(error?.message || error).slice(0, 160);
   }
   const v2Skip = formatV2SkipHistogram(skipReasons);
   try {

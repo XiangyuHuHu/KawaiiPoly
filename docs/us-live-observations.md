@@ -1,8 +1,10 @@
-# Live 观察日志、尾盘分歧闸门与尾盘试单（SCAN_SPEC v3.6）
+# Live 观察日志、尾盘分歧闸门与尾盘试单（SCAN_SPEC v3.7）
 
 v3.4 把正在进行的美国站胜负盘记下来，并给旧尾盘规则加分歧闸门。v3.5 不改 BTC 错价、全局现金保留 $15、旧尾盘地板 0.88 / 0.95、胜率仓位。它另开一个板块 `live_endgame_v2`：约 16 小时观察里，尾盘模型 ≥ 0.70 且卖价 ≤ 0.90 是正 ROI（n=9，6 场，100% 命中，ROI +19.5%）。这是小账户试单，每笔 $1。
 
 v3.6 只改这个试单的现金地板。其他板块仍是下单后留下 $15。试单模型地板和价格帽仍是 0.70 / 0.90。
+
+v3.7 不改门槛、日帽、现金地板和分歧闸门。它修两件事：`us:live-observe` 要读到和 `polymarket:us` 一样的实盘开关；下单时 BBO 过期、价差过大或行情刷新失败不再把 SIGNAL 标成 `skipped`，保持 pending，下一轮用新的 BBO 再试。
 
 依据是 2026-10-19 对 175 场（10/12、10/13、10/17 PT）的回测：尾盘没有一组门槛是正 ROI；亏损集中在模型比卖价高出约 0.10 的单（例如模型 0.96、卖价 0.83）。唯一为正的一截是足球早/中盘热门（去水 ≥ 0.80、价格 ≤ 0.93，n=88，ROI +12%），先只记纸面。
 
@@ -76,7 +78,7 @@ v3.6 只改这个试单的现金地板。其他板块仍是下单后留下 $15�
 
 1. `us:scan`（建议每 15 分钟）写观察日志，规则通过就追加 SIGNAL 到 `signals/pending.jsonl`。扫描本身不下单。
 2. `polymarket:us` 在同一条 15 分钟循环里读 pending，重新拉 BBO，再按日帽、保留现金、去重和刹车下单。
-3. `us:live-observe`（建议每 5 分钟）同样写日志并发 SIGNAL。如果这时还有未完成的 `live_endgame_v2` pending，它马上只下这个板块，走同一个 `runPolymarketUsCycle`。尾盘窗口短，不等到下一轮 15 分钟。其他板块仍只由 `polymarket:us` 下。摘要行在 `v2-signals` 和 `v2-placed` 之外还有 `v2-skip=cash_reserve:N,insufficient_cash:N,stale_bbo:N,divergence:N,depth:N`。没有跳过时是 `v2-skip=none`。同一份计数写进 `status/last-live-observe.json` 的 `v2Skip`。下单把 SIGNAL 标成 `skipped` 时，pending 行带上 `skip_reason`（例如 `cash_reserve`）。现金门跑过时再写 `cash_reserve_checked`。
+3. `us:live-observe`（建议每 5 分钟）同样写日志并发 SIGNAL。发布时把 `bbo_at` 写进 SIGNAL（缓存 `Age` 优先；没有 `Age` 就用刚收到的时刻）。如果这时还有未完成的 `live_endgame_v2` pending，它马上只下这个板块，走同一个 `runPolymarketUsCycle`，并且先重新拉 BBO。刷新失败就 defer，不用缺年龄的旧报价把信号烧掉。尾盘窗口短，不等到下一轮 15 分钟。其他板块仍只由 `polymarket:us` 下。摘要行在 `v2-signals` 和 `v2-placed` 之外还有 `v2-skip=cash_reserve:N,insufficient_cash:N,stale_bbo:N,divergence:N,depth:N`。终态跳过和本轮 defer 都会计入。没有这些原因时是 `v2-skip=none`。同一份计数写进 `status/last-live-observe.json` 的 `v2Skip`。下单把 SIGNAL 标成 `skipped` 时，pending 行带上 `skip_reason`（例如 `cash_reserve`）。`stale_bbo`、`spread`、`spread_unknown`、`quote_unavailable`、下单 API 的非 400 错误写 `defer_reason`，`status` 仍是 `pending`，`skip_reason` 清空。现金门跑过时再写 `cash_reserve_checked`。
 
 已经下过的 SIGNAL 不会再下一遍。同一市场当天的第二笔试单会被丢掉。
 
@@ -104,5 +106,36 @@ node scripts/analyze-live-observations.js [observations.jsonl] [settled.jsonl]
 1. 关掉试单：`US_LIVE_ENDGAME_V2_ENABLED=false`。旧尾盘 0.88 / 0.95 还在。已经写下的观察日志留着。
 2. 关掉分歧闸门：把 `src/polymarketUs/constants.js` 里的 `US_LIVE_ENDGAME_DIVERGENCE_ENABLED` 设为 `false`。地板 0.88 和价格帽 0.95 保持。扫描和下单都读这个常量。试单自己的分歧检查用 `allowMicro: false`，不受这条 $1 盲单影响。
 3. 停止记日志：去掉 `us:live-observe` 的 cron。`us:scan` 里的 `observeLive` 可以不传，现有扫描测试就是这样。已经写下的 jsonl 可以留着。5 分钟那条也会停掉试单的加急下单，15 分钟的 `polymarket:us` 仍会吃掉还在 pending 里的试单，除非同时把环境变量关掉。
-4. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.6`，在 `rules.js` 是 `3.6`。退回时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameV2*`、`rules.size` 上的 `liveEndgameV2Cash*` 和日帽里的 `live_endgame_v2`。
+4. 版本号：`US_SPEC_VERSION` 在 `constants.js` 是 `v3.7`，在 `rules.js` 是 `3.7`。退回时两处一起改，并去掉 `rules.edge` 上的 `liveEndgameV2*`、`rules.size` 上的 `liveEndgameV2Cash*` 和日帽里的 `live_endgame_v2`。
+
+## 实盘开关和盒子上的循环脚本
+
+`polymarket:us` 和 `us:live-observe` 都要看到这三条：`POLYMARKET_US_DRY_RUN=false`、`POLYMARKET_US_LIVE_TRADING_ENABLED=true`、两把 `POLYMARKET_US_*` 密钥。缺开关时健康检查是 `dryRun=true`、`liveBlockedReason=live_flag_off`。
+
+`scripts/us-scan.js` 启动时用 `loadUsRepoEnv()` 读仓库根目录的 `.env`，不覆盖进程里已经导出的变量。所以密钥可以先在环境里，开关仍从 `.env` 补上。
+
+`polyus-loop.sh` 和 `polyus-live-observe-loop.sh` 不在这个仓库里，通常在检出目录旁边。它们如果这样找根目录，source 时 `$0` 是循环脚本，`.env` 不会被载入：
+
+```bash
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$ROOT/.env"
+```
+
+改成 source 仓库里的脚本。它用 `BASH_SOURCE` 定位自己，再读上一级 `.env`：
+
+```bash
+# shellcheck disable=SC1091
+source /path/to/KawaiiPoly/scripts/polymarket-us-live.env.sh
+```
+
+拉到 v3.7 之后在盒子上：
+
+```bash
+cd /path/to/KawaiiPoly
+git pull origin main
+# 重启 polyus-loop.sh 和 polyus-live-observe-loop.sh，让新进程读到新代码
+npm run polymarket:us:health
+```
+
+下一轮 `us:live-observe` 写完 `us-health.json` 后，`dryRun` 应为 false，`liveBlockedReason` 为 null。然后看摘要里的 `v2-placed`，以及 pending 的 `status` / `defer_reason` / `skip_reason`。`stale_bbo` 不应再把行标成 `skipped`。
 5. BTC 门槛、`US_CASH_RESERVE_USD = 15`、其他板块日帽、板块刹车、胜率仓位都不要在这次回滚里动。试单现金地板 `US_LIVE_ENDGAME_V2_CASH_RESERVE_USD = 14` 只作用于 `live_endgame_v2`。

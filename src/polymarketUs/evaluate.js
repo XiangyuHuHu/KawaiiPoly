@@ -144,6 +144,16 @@ function reject(reason) {
   return { ok: false, reason, signal: null };
 }
 
+/** 发布时记下这份 BBO 的观察时间。缓存 Age 优先于上一笔成交时间。 */
+export function observedBboAt(input) {
+  const nowMs = input?.now ? new Date(input.now).getTime() : Date.now();
+  const age = finite(input?.bboAgeMs ?? input?.bbo_age_ms);
+  if (age != null && Number.isFinite(nowMs)) return new Date(nowMs - age).toISOString();
+  const sampled = Date.parse(input?.bboSampledAt || input?.bbo_at || input?.bboAt || '');
+  if (Number.isFinite(sampled)) return new Date(sampled).toISOString();
+  return null;
+}
+
 /**
  * Decide whether a US quote is a pending order. Does not place the order.
  */
@@ -316,6 +326,7 @@ export function evaluateUsSignal(input, rules = US_RULES) {
   const side = displaySide(input.side, input.timeframe);
   const edge = sector === 'btc-misprice' ? pricedEdge : round4(modelProb - ask);
   const id = `${writtenSector}:${slug}:${polarity}`;
+  const rememberSources = sector === 'live' || trial;
   const signal = {
     spec_version: US_SPEC_VERSION,
     id,
@@ -323,14 +334,15 @@ export function evaluateUsSignal(input, rules = US_RULES) {
     live_kind: trial ? 'endgame' : (sector === 'live' ? liveKind : null),
     live_phase: trial ? 'endgame' : (sector === 'live' ? liveKind : null),
     endgame: trial || (sector === 'live' && liveKind === 'endgame'),
-    espn_prob: sector === 'live' ? finite(input.espnProb ?? input.espn_prob) : null,
-    pinnacle_prob: sector === 'live' ? finite(input.pinnacleProb ?? input.pinnacle_prob) : null,
-    score_sampled_at: sector === 'live' ? (input.scoreSampledAt || input.score_sampled_at || null) : null,
-    score_age_ms: sector === 'live' ? resolveScoreAgeMs({
+    espn_prob: rememberSources ? finite(input.espnProb ?? input.espn_prob) : null,
+    pinnacle_prob: rememberSources ? finite(input.pinnacleProb ?? input.pinnacle_prob) : null,
+    score_sampled_at: rememberSources ? (input.scoreSampledAt || input.score_sampled_at || null) : null,
+    score_age_ms: rememberSources ? resolveScoreAgeMs({
       scoreAgeMs: input.scoreAgeMs ?? input.score_age_ms,
       scoreSampledAt: input.scoreSampledAt || input.score_sampled_at,
       now: input.now
     }) : null,
+    bbo_at: observedBboAt(input),
     slug,
     side,
     limit_price: round4(ask),

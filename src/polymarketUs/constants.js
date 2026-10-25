@@ -1,15 +1,17 @@
 /**
- * SCAN_SPEC v3.6（2026-10-23）里必须执行的数字。
+ * SCAN_SPEC v3.7（2026-10-25）里必须执行的数字。
  * v3.3 的 BTC 错价、全局现金保留 $15、胜率仓位不变。v3.4 是 Live 观察和尾盘分歧闸门。
  * v3.5 加 Live 尾盘试单 live_endgame_v2：模型 ≥ 0.70、价格 ≤ 0.90、每笔 $1。
  * v3.6 只放宽这个试单的现金地板。购买力约 $15.86 时，$1 之后剩约 $14.86，过不了全局 $15。
  * 试单改为下单后 ≥ $14，并且最多 1 笔可以把现金打到 $15 以下，然后重新要求 $15。
- * 其他板块仍用 US_CASH_RESERVE_USD。试单阈值不改：实盘成交只有 1 笔，0.70/0.90 先不动。
+ * 其他板块仍用 US_CASH_RESERVE_USD。试单阈值不改：默认仍是 0.70/0.90。
  * 可选试点：US_LIVE_ENDGAME_V2_MIN_MODEL=0.65（价格帽仍是 0.90）。默认仍是 0.70。
+ * v3.7 不改门槛。us:live-observe 读取和 polymarket:us 相同的实盘开关。
+ * 下单时 BBO 过期、价差、行情刷新失败保持 pending，下一轮再试，不把 SIGNAL 标成 skipped。
  * 扫描器可以改文案；下单以这里的常量为准。
  */
 
-export const US_SPEC_VERSION = 'v3.6';
+export const US_SPEC_VERSION = 'v3.7';
 export const US_LINE_ID = 'polymarket_us';
 
 export const US_GATEWAY_BASE = 'https://gateway.polymarket.us';

@@ -1,8 +1,9 @@
 /**
- * Polymarket US scan rules from SCAN_SPEC v3.6.
+ * Polymarket US scan rules from SCAN_SPEC v3.7.
  * v3.3 tightens BTC misprice. v3.4 adds the live observation log and the
  * endgame divergence gate. v3.5 adds the live_endgame_v2 trial.
  * v3.6 lowers only that trial's cash floor to $14, one breach of the $15 reserve.
+ * v3.7 keeps those floors. Quote failures on the place path stay pending.
  * Scanners write SIGNAL files and never place orders.
  * The bot may send the limit order without another chat confirmation.
  */
@@ -39,7 +40,7 @@ import {
   US_SOCCER_PAPER_PHASES
 } from './constants.js';
 
-export const US_SPEC_VERSION = '3.6';
+export const US_SPEC_VERSION = '3.7';
 
 export const US_SITE_ORIGIN = 'https://polymarket.us';
 export const US_GATEWAY_ORIGIN = 'https://gateway.polymarket.us/v1';
