@@ -15,7 +15,7 @@ Polymarket 在这个仓库里分成两条线，结算来源不能混用。
 
 国际盘客户端若被指到 `gateway.polymarket.us` 会直接拒绝。美国盘客户端若被指到 `clob.polymarket.com` 或 `gamma-api.polymarket.com` 也会拒绝。
 
-美国盘规则在 `src/polymarketUs/constants.js` 和 `src/polymarketUs/rules.js`，对应 SCAN_SPEC v3.6。BTC 错价仍是 v3.3：模型下限 0.56、价格 0.35–0.65、edge 4–15pp、不再打 $1 试探单；仓位 $2–$5、日帽、全局现金保留 $15、全板块每天每轮、工作日 BTC 密集窗 24/7、单边窗口、动量 mos/same_way 都不变。依据见 `docs/us-btc-misprice-20261018.md`。v3.4 把进行中的胜负盘记到 `scans/live-observations.jsonl`，并给尾盘加分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`（模型 ≥ 0.70、价格 ≤ 0.90、每笔 $1）。v3.6 只让这个试单在购买力约 $15.86 时能下一笔 $1（下单后 ≥ $14，最多打穿 $15 一次）。见 `docs/us-live-observations.md`。非 BTC 模型在 `src/polymarketUs/models.js`，用公开数据生成，不读浏览器例程。扫描节奏见 `docs/bot-usage.md`。
+美国盘规则在 `src/polymarketUs/constants.js` 和 `src/polymarketUs/rules.js`，对应 SCAN_SPEC v3.7。BTC 错价仍是 v3.3：模型下限 0.56、价格 0.35–0.65、edge 4–15pp、不再打 $1 试探单；仓位 $2–$5、日帽、全局现金保留 $15、全板块每天每轮、工作日 BTC 密集窗 24/7、单边窗口、动量 mos/same_way 都不变。依据见 `docs/us-btc-misprice-20261018.md`。v3.4 把进行中的胜负盘记到 `scans/live-observations.jsonl`，并给尾盘加分歧闸门。v3.5 加尾盘试单 `live_endgame_v2`（模型 ≥ 0.70、价格 ≤ 0.90、每笔 $1）。v3.6 只让这个试单在购买力约 $15.86 时能下一笔 $1（下单后 ≥ $14，最多打穿 $15 一次）。v3.7 不改这些门槛：`us:live-observe` 读取和 `polymarket:us` 相同的实盘开关；BBO 过期、价差或行情刷新失败保持 pending，下一轮再试。见 `docs/us-live-observations.md`。非 BTC 模型在 `src/polymarketUs/models.js`，用公开数据生成，不读浏览器例程。扫描节奏见 `docs/bot-usage.md`。
 
 ## 美国盘怎么跑
 

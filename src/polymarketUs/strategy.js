@@ -281,6 +281,21 @@ function decision(action, code, reason, extra = {}) {
   return row;
 }
 
+/**
+ * 行情软失败。SIGNAL 保持 pending，下一轮用新的 BBO 再试。
+ * 不写成 skipped，否则后面的周期只会 already_handled。
+ */
+export function deferRetryableQuote(signal, code, reason) {
+  return decision('defer', code, reason, {
+    signal_id: signalIdentity(signal),
+    sector: normalizeSector(signal?.sector),
+    side: normalizeOutcomeSide(signal?.side),
+    slug: tradingSlug(signal?.slug),
+    status: 'pending',
+    updateStatus: true
+  });
+}
+
 function terminalStatus(signal) {
   const status = String(signal?.status || 'pending').toLowerCase();
   if (['filled', 'skipped', 'expired', 'dry_run'].includes(status)) return status;
@@ -296,7 +311,7 @@ function oppositeOpen(signal, side, openWindows) {
 }
 
 /**
- * 对一条 SIGNAL 做 v3.6 门控。不访问网络。
+ * 对一条 SIGNAL 做 v3.7 门控。不访问网络。
  * action: place | skip | defer
  */
 export function evaluateUsSignal(signal, context = {}) {
@@ -337,6 +352,9 @@ export function evaluateUsSignal(signal, context = {}) {
 
   const endgame = sector === 'live' && isLiveEndgame(signal);
   const trial = sector === 'live_endgame_v2';
+  if (trial && !liveEndgameV2Enabled()) {
+    return decision('skip', 'live_endgame_v2_disabled', '尾盘试单已关掉。', { ...base, status: 'skipped' });
+  }
   const model = readNumber(signal?.model_prob, signal?.modelProb);
   if (!endgame && !trial && model != null && model > US_MODEL_PROB_CAP + 1e-9) {
     return decision('skip', 'model_cap', `model_prob ${model} 超过封顶 ${US_MODEL_PROB_CAP}。`, { ...base, status: 'skipped' });
@@ -382,7 +400,11 @@ export function evaluateUsSignal(signal, context = {}) {
       maxAgeMs: context.bboMaxAgeMs ?? US_BBO_MAX_AGE_MS
     });
     if (!fresh.ok) {
-      return decision('skip', 'stale_bbo', trial ? '尾盘试单需要新鲜 BBO。' : 'BTC 错价需要新鲜 BBO。', { ...base, status: 'skipped' });
+      return deferRetryableQuote(
+        signal,
+        'stale_bbo',
+        trial ? '尾盘试单需要新鲜 BBO。' : 'BTC 错价需要新鲜 BBO。'
+      );
     }
   }
 
@@ -401,9 +423,6 @@ export function evaluateUsSignal(signal, context = {}) {
   let maxPrice = US_PRICE_MAX;
   const v2MinModel = liveEndgameV2MinModel();
   if (trial) {
-    if (!liveEndgameV2Enabled()) {
-      return decision('skip', 'live_endgame_v2_disabled', '尾盘试单已关掉。', { ...base, status: 'skipped' });
-    }
     minPrice = 0;
     maxPrice = US_LIVE_ENDGAME_V2_MAX_PRICE;
     if (model == null || model + 1e-9 < v2MinModel) {
@@ -524,10 +543,10 @@ export function evaluateUsSignal(signal, context = {}) {
 
   const spread = readSpread(signal, quote);
   if (spread == null) {
-    return decision('skip', 'spread_unknown', '缺少价差，无法确认能吃下这笔单。', { ...base, status: 'skipped' });
+    return deferRetryableQuote(signal, 'spread_unknown', '缺少价差，无法确认能吃下这笔单。');
   }
   if (spread - 1e-9 > US_MAX_SPREAD) {
-    return decision('skip', 'spread', `价差 ${spread} 大于 ${US_MAX_SPREAD}。`, { ...base, status: 'skipped' });
+    return deferRetryableQuote(signal, 'spread', `价差 ${spread} 大于 ${US_MAX_SPREAD}。`);
   }
   const depthUsd = readDepthUsd(signal, quote, executionPrice);
   if (depthUsd == null || depthUsd <= 0 || depthUsd + 1e-9 < sizeUsd) {
@@ -608,7 +627,7 @@ export function evaluateUsSignal(signal, context = {}) {
     sizeUsd
   });
   const placeCode = orderKind === 'exploratory' || orderKind === 'divergence_micro' ? orderKind : 'pass';
-  return decision('place', placeCode, exploratoryReason || '通过 v3.6 门控。', {
+  return decision('place', placeCode, exploratoryReason || '通过 v3.7 门控。', {
     ...base,
     status: context.dryRun ? 'pending' : 'filled',
     updateStatus: !context.dryRun,

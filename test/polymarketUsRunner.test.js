@@ -61,7 +61,7 @@ test('dry-run turns a pending SIGNAL into an order payload and does not call fet
   const ledger = await readFile(join(dir, 'real-orders.jsonl'), 'utf8');
   const row = JSON.parse(ledger.trim());
   assert.equal(row.venue, 'polymarket_us');
-  assert.equal(row.spec, 'v3.6');
+  assert.equal(row.spec, 'v3.7');
   assert.equal(row.dry_run, true);
   assert.equal(row.amount_usd, 2);
   assert.equal(row.order_kind, 'normal');
@@ -485,7 +485,12 @@ test('a cached BBO over 45s is stale when the ask moved, and absurd age stays st
     }
   });
   assert.equal(moved.results[0].code, 'stale_bbo');
+  assert.equal(moved.results[0].action, 'defer');
   assert.equal(moved.placed, 0);
+  const kept = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
+  assert.equal(kept.status, 'pending');
+  assert.equal(kept.defer_reason, 'stale_bbo');
+  assert.equal(kept.skip_reason, null);
 
   await writeFile(join(dir, 'signals', 'pending.jsonl'), pending('sig-btc-absurd'));
   const absurd = await runPolymarketUsCycle({
@@ -729,4 +734,117 @@ test('fetchQuotes false places from gates.depth_usd when liquidity_usd is null',
   const report = await runPolymarketUsCycle({ config, now: NOW, gateway, fetchQuotes: false });
   assert.equal(fetched, 0);
   assert.equal(report.placed, 1);
+});
+
+function v2Pending(id = 'live_endgame_v2:aec-nfl-retry:up') {
+  return {
+    id,
+    sector: 'live_endgame_v2',
+    slug: 'aec-nfl-retry',
+    side: 'Yes',
+    limit_price: 0.8,
+    ask: 0.8,
+    model_prob: 0.8,
+    liquidity_usd: 20,
+    confidence: 'High',
+    resolution_risk: 'Low',
+    status: 'pending',
+    event_url: 'https://polymarket.us/event/aec-nfl-retry'
+  };
+}
+
+function v2Book() {
+  return {
+    asks: [{ price: 0.8, shares: 20 }],
+    bids: [{ price: 0.78, shares: 20 }]
+  };
+}
+
+function v2Quote({ cacheAgeMs }) {
+  return normalizedBbo({
+    bestBid: 0.78,
+    bestAsk: 0.8,
+    yesAsk: 0.8,
+    noAsk: 0.22,
+    spread: 0.02,
+    cacheAgeMs
+  });
+}
+
+test('v2 quote failure and stale_bbo stay pending so a later fresh quote can dry-run place', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify(v2Pending())}\n`);
+  let phase = 'fail';
+  const gateway = {
+    async getBbo() {
+      if (phase === 'fail') throw new Error('gateway down');
+      if (phase === 'stale') return v2Quote({ cacheAgeMs: 301_000 });
+      return v2Quote({ cacheAgeMs: 500 });
+    },
+    async getBook() {
+      return v2Book();
+    }
+  };
+  const failed = await runPolymarketUsCycle({ config, now: NOW, gateway, sector: 'live_endgame_v2' });
+  assert.equal(failed.results[0].action, 'defer');
+  assert.equal(failed.results[0].code, 'quote_unavailable');
+  assert.equal(failed.placed, 0);
+  let pending = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.defer_reason, 'quote_unavailable');
+  assert.equal(pending.skip_reason, null);
+  await assert.rejects(readFile(join(dir, 'real-orders.jsonl'), 'utf8'));
+
+  phase = 'stale';
+  const stale = await runPolymarketUsCycle({ config, now: NOW, gateway, sector: 'live_endgame_v2' });
+  assert.equal(stale.results[0].action, 'defer');
+  assert.equal(stale.results[0].code, 'stale_bbo');
+  assert.equal(stale.placed, 0);
+  pending = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
+  assert.equal(pending.status, 'pending');
+  assert.equal(pending.defer_reason, 'stale_bbo');
+
+  phase = 'fresh';
+  const placed = await runPolymarketUsCycle({ config, now: NOW, gateway, sector: 'live_endgame_v2' });
+  assert.equal(placed.results[0].action, 'place');
+  assert.equal(placed.placed, 1);
+  assert.equal(placed.results[0].fill_status, 'dry_run');
+  const order = JSON.parse((await readFile(join(dir, 'real-orders.jsonl'), 'utf8')).trim());
+  assert.equal(order.dry_run, true);
+  assert.equal(order.sector, 'live_endgame_v2');
+  assert.equal(order.amount_usd, 1);
+  pending = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
+  assert.equal(pending.status, 'pending');
+});
+
+test('US_LIVE_ENDGAME_V2_ENABLED=false skips a pending v2 signal instead of placing', async () => {
+  const { dir, config } = await fixture();
+  await writeFile(join(dir, 'signals', 'pending.jsonl'), `${JSON.stringify(v2Pending('live_endgame_v2:aec-nfl-retry:off'))}\n`);
+  const previous = process.env.US_LIVE_ENDGAME_V2_ENABLED;
+  process.env.US_LIVE_ENDGAME_V2_ENABLED = 'false';
+  try {
+    const report = await runPolymarketUsCycle({
+      config,
+      now: NOW,
+      sector: 'live_endgame_v2',
+      gateway: {
+        async getBbo() {
+          return v2Quote({ cacheAgeMs: 500 });
+        },
+        async getBook() {
+          return v2Book();
+        }
+      }
+    });
+    assert.equal(report.placed, 0);
+    assert.equal(report.results[0].action, 'skip');
+    assert.equal(report.results[0].code, 'live_endgame_v2_disabled');
+    const pending = JSON.parse((await readFile(join(dir, 'signals', 'pending.jsonl'), 'utf8')).trim());
+    assert.equal(pending.status, 'skipped');
+    assert.equal(pending.skip_reason, 'live_endgame_v2_disabled');
+    await assert.rejects(readFile(join(dir, 'real-orders.jsonl'), 'utf8'));
+  } finally {
+    if (previous === undefined) delete process.env.US_LIVE_ENDGAME_V2_ENABLED;
+    else process.env.US_LIVE_ENDGAME_V2_ENABLED = previous;
+  }
 });

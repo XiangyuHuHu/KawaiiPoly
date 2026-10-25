@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -44,6 +44,10 @@ import {
 import { runUsScan } from '../src/polymarketUs/scan.js';
 import { usPaths } from '../src/polymarketUs/signals.js';
 import { US_RULES } from '../src/polymarketUs/rules.js';
+import { buildPolymarketUsConfig } from '../src/polymarketUs/config.js';
+import { loadUsRepoEnv } from '../src/polymarketUs/loadEnv.js';
+import { placePendingLiveEndgameV2 } from '../src/polymarketUs/liveObservePlace.js';
+import { publishLiveEndgameV2 } from '../src/polymarketUs/liveEndgameV2.js';
 
 const NOW = new Date('2026-10-19T20:10:00.000Z');
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -771,12 +775,165 @@ test('endgame v2 marks rule_pass and publishes a one-dollar signal without placi
     assert.equal(pending[0].size_usd, 1);
     assert.equal(pending[0].side, 'Yes');
     assert.equal(pending[0].model_prob, 0.78);
+    assert.equal(pending[0].bbo_at, '2026-10-19T21:40:00.000Z');
+    assert.equal(pending[0].pinnacle_prob, 0.78);
     assert.equal(pending[0].auto_order.scanner_places_orders, false);
     const logged = JSON.parse((await readFile(usPaths(root).liveObservations, 'utf8')).trim().split('\n')[0]);
     assert.equal(logged.rule_pass.endgame_v2.pass, true);
     assert.equal(logged.rule_pass.would_signal, false);
     assert.equal(logged.signal_id, pending[0].id);
     await assert.rejects(readFile(usPaths(root).realOrders, 'utf8'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('US_LIVE_ENDGAME_V2_ENABLED=false does not publish a v2 signal', async () => {
+  const previous = process.env.US_LIVE_ENDGAME_V2_ENABLED;
+  process.env.US_LIVE_ENDGAME_V2_ENABLED = 'false';
+  try {
+    const result = await publishLiveEndgameV2({
+      rows: [{ rule_pass: { endgame_v2: { pass: true } }, market_slug: 'aec-off', side: 'Yes' }]
+    });
+    assert.equal(result.published, 0);
+    assert.deepEqual(result.skipped, ['disabled']);
+  } finally {
+    if (previous === undefined) delete process.env.US_LIVE_ENDGAME_V2_ENABLED;
+    else process.env.US_LIVE_ENDGAME_V2_ENABLED = previous;
+  }
+});
+
+test('us-scan live-observe place path reports dryRun false when .env turns live flags on', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'us-scan-env-'));
+  const keys = [
+    'POLYMARKET_US_ACCESS_KEY',
+    'POLYMARKET_US_SECRET_KEY',
+    'POLYMARKET_US_LIVE_TRADING_ENABLED',
+    'POLYMARKET_US_DRY_RUN'
+  ];
+  const saved = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  let orders = 0;
+  try {
+    await writeFile(join(root, '.env'), [
+      'POLYMARKET_US_ACCESS_KEY=file-key',
+      'POLYMARKET_US_SECRET_KEY=file-secret',
+      'POLYMARKET_US_LIVE_TRADING_ENABLED=true',
+      'POLYMARKET_US_DRY_RUN=false'
+    ].join('\n'));
+    process.env.POLYMARKET_US_ACCESS_KEY = 'ambient-key';
+    process.env.POLYMARKET_US_SECRET_KEY = 'ambient-secret';
+    delete process.env.POLYMARKET_US_LIVE_TRADING_ENABLED;
+    delete process.env.POLYMARKET_US_DRY_RUN;
+    loadUsRepoEnv(join(root, '.env'));
+    const config = buildPolymarketUsConfig();
+    assert.equal(config.liveTradingEnabled, true);
+    assert.equal(config.dryRun, false);
+    assert.equal(config.liveBlockedReason, null);
+    assert.equal(config.accessKey, 'ambient-key');
+
+    const ledger = join(root, 'ledger');
+    await mkdir(join(ledger, 'signals'), { recursive: true });
+    await writeFile(join(ledger, 'signals', 'pending.jsonl'), `${JSON.stringify({
+      id: 'live_endgame_v2:aec-nfl-health:up',
+      sector: 'live_endgame_v2',
+      slug: 'aec-nfl-health',
+      side: 'Yes',
+      limit_price: 0.8,
+      ask: 0.8,
+      model_prob: 0.8,
+      liquidity_usd: 20,
+      confidence: 'High',
+      resolution_risk: 'Low',
+      status: 'pending'
+    })}\n`);
+    const scanSource = await readFile(join(repoRoot, 'scripts/us-scan.js'), 'utf8');
+    assert.match(scanSource, /loadUsRepoEnv\(\)/);
+    assert.match(scanSource, /placePendingLiveEndgameV2/);
+    const place = await placePendingLiveEndgameV2({
+      ledgerRoot: ledger,
+      workspaceRoot: root,
+      gateway: {
+        async getBbo() {
+          return {
+            bestBid: 0.78,
+            bestAsk: 0.8,
+            yesAsk: 0.8,
+            spread: 0.02,
+            cacheAgeMs: 301_000
+          };
+        },
+        async getBook() {
+          return { asks: [{ price: 0.8, shares: 20 }], bids: [{ price: 0.78, shares: 20 }] };
+        }
+      },
+      trading: {
+        async getBalances() {
+          return { balances: [{ currency: 'USD', buyingPower: 40, currentBalance: 40 }] };
+        },
+        async getPositions() {
+          return { positions: {} };
+        },
+        async listOpenOrders() {
+          return { orders: [] };
+        },
+        async createOrder() {
+          orders += 1;
+          throw new Error('health probe must not place');
+        }
+      }
+    });
+    assert.equal(orders, 0);
+    assert.equal(place.report.dryRun, false);
+    assert.equal(place.report.liveBlockedReason, null);
+    assert.equal(place.report.liveTradingEnabled, true);
+    assert.equal(place.report.results[0].action, 'defer');
+    assert.equal(place.report.results[0].code, 'stale_bbo');
+    const health = JSON.parse(await readFile(join(ledger, 'us-health.json'), 'utf8'));
+    assert.equal(health.dryRun, false);
+    assert.equal(health.liveBlockedReason, null);
+    assert.equal(health.liveTradingEnabled, true);
+    const pending = JSON.parse((await readFile(join(ledger, 'signals', 'pending.jsonl'), 'utf8')).trim());
+    assert.equal(pending.status, 'pending');
+    assert.equal(pending.defer_reason, 'stale_bbo');
+  } finally {
+    for (const key of keys) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('polymarket-us-live.env.sh resolves ROOT from BASH_SOURCE when a loop sources it', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'us-env-sh-'));
+  const repo = join(root, 'KawaiiPoly');
+  const loop = join(root, 'polyus-live-observe-loop.sh');
+  try {
+    await mkdir(join(repo, 'scripts'), { recursive: true });
+    await copyFile(
+      join(repoRoot, 'scripts/polymarket-us-live.env.sh'),
+      join(repo, 'scripts/polymarket-us-live.env.sh')
+    );
+    await writeFile(join(repo, '.env'), 'POLYMARKET_US_LIVE_TRADING_ENABLED=true\nPOLYMARKET_US_DRY_RUN=false\n');
+    await writeFile(loop, `#!/bin/bash
+source "${join(repo, 'scripts/polymarket-us-live.env.sh')}"
+printf '%s|%s\\n' "$\{POLYMARKET_US_LIVE_TRADING_ENABLED}" "$\{POLYMARKET_US_DRY_RUN}"
+`);
+    const script = await new Promise((resolve, reject) => {
+      const child = spawn('bash', [loop], { env: { PATH: process.env.PATH || '/usr/bin' } });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (chunk) => {
+        out += chunk;
+      });
+      child.stderr.on('data', (chunk) => {
+        err += chunk;
+      });
+      child.on('error', reject);
+      child.on('close', (code) => resolve({ code, out, err }));
+    });
+    assert.equal(script.code, 0, script.err);
+    assert.equal(script.out.trim(), 'true|false');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

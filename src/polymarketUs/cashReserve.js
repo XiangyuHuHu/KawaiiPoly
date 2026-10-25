@@ -174,6 +174,7 @@ const SKIP_BUCKETS = [
   ['divergence', /divergence|sources_unavailable|espn_|pinnacle_|score_/],
   ['depth', /(^|:)depth$/],
   ['spread', /spread/],
+  ['quote', /quote_unavailable|api_error/],
   ['daily_cap', /daily[_-]cap/],
   ['model', /model/],
   ['price', /price/],
@@ -191,7 +192,7 @@ export function bucketV2SkipReason(raw) {
   return cleaned || 'other';
 }
 
-/** `cash_reserve:2,stale_bbo:1`。没有跳过时是 `none`。 */
+/** `cash_reserve:2,stale_bbo:1`。没有跳过或 defer 时是 `none`。可重试的行情失败也计数，但不会把 SIGNAL 标成 skipped。 */
 export function formatV2SkipHistogram(reasons = []) {
   const counts = new Map();
   for (const raw of reasons) {
